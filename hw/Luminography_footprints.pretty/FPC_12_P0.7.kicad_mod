@@ -15,6 +15,8 @@
   )
   (fp_circle (center 0 0) (end 18 0)
     (stroke (width 0.15) (type default)) (fill none) (layer "B.SilkS") (tstamp c6e941d5-f121-4fcb-8ab4-ee206f49aaeb))
+  (fp_line (start -4.3 8.95) (end -4.3 11.25)
+    (stroke (width 0.1) (type default)) (layer "F.SilkS") (tstamp c1f00ad5-4c24-4217-a6ca-cf0aa0157744))
   (fp_rect (start -6.4 20.1) (end 6.4 21.6)
     (stroke (width 0.1) (type default)) (fill none) (layer "Dwgs.User") (tstamp 942d3fb4-f57e-41df-9262-77f4e03ab515))
   (fp_line (start -5.65 20.1) (end 5.65 20.1)
