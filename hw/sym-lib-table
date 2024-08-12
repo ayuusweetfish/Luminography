@@ -7,4 +7,5 @@
   (lib (name "Luminography_symbols")(type "KiCad")(uri "${KIPRJMOD}/Luminography_symbols.kicad_sym")(options "")(descr ""))
   (lib (name "XS3A1T3157GMX")(type "KiCad")(uri "${KIPRJMOD}/libs/XS3A1T3157GMX/XS3A1T3157GMX.kicad_sym")(options "")(descr ""))
   (lib (name "MAX98357AETE+")(type "KiCad")(uri "${KIPRJMOD}/libs/MAX98357AETE+/MAX98357AETE+.kicad_sym")(options "")(descr ""))
+  (lib (name "W25Q16JVUXIQ")(type "KiCad")(uri "${KIPRJMOD}/libs/W25Q16JVUXIQ/W25Q16JVUXIQ.kicad_sym")(options "")(descr ""))
 )

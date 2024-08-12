@@ -413,7 +413,8 @@
       "BMI270",
       "MMC5603NJ",
       "XS3A1T3157GMX",
-      "MAX98357AETE+"
+      "MAX98357AETE+",
+      "W25Q16JVUXIQ"
     ],
     "pinned_symbol_libs": [
       "MAX17048G+T10",
@@ -422,7 +423,8 @@
       "MMC5603NJ",
       "Luminography_symbols",
       "XS3A1T3157GMX",
-      "MAX98357AETE+"
+      "MAX98357AETE+",
+      "W25Q16JVUXIQ"
     ]
   },
   "meta": {

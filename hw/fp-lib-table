@@ -7,4 +7,5 @@
   (lib (name "MMC5603NJ")(type "KiCad")(uri "${KIPRJMOD}/libs/MMC5603NJ/MMC5603NJ.pretty")(options "")(descr ""))
   (lib (name "XS3A1T3157GMX")(type "KiCad")(uri "${KIPRJMOD}/libs/XS3A1T3157GMX/XS3A1T3157GMX.pretty")(options "")(descr ""))
   (lib (name "MAX98357AETE+")(type "KiCad")(uri "${KIPRJMOD}/libs/MAX98357AETE+/MAX98357AETE+.pretty")(options "")(descr ""))
+  (lib (name "W25Q16JVUXIQ")(type "KiCad")(uri "${KIPRJMOD}/libs/W25Q16JVUXIQ/W25Q16JVUXIQ.pretty")(options "")(descr ""))
 )
