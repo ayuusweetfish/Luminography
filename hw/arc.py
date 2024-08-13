@@ -30,6 +30,13 @@ if True:
   x1, y1 = 116.604333, 142.046302
   x2, y2 = 106.64332, 144.715347
 
+  # I2Cx_SDA_05
+  delta2 = 0
+  x1, y1 = 83.207851, 140.539834
+  x2, y2 = 95.905, 143.665
+  x1, y1 = 83.395379, 143.61607
+  x2, y2 = 87.286909, 144.884294
+
   x1, y1 = x1-100, y1-100
   x2, y2 = x2-100, y2-100
   a1 = atan2(y1, x1) + delta1
@@ -43,3 +50,5 @@ if True:
   ))
 
 # %s/(arc (start \(.\+\)) (mid \(.\+\)) (end \([0-9\.\- ]\+\)) \(.\+\)"B.Cu"\(.\+\)/(arc (start \1) (mid \2) (end \3) \4"F.Cu"\5\r  (via (at \1) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net 0) (tstamp 178c4af3-41cd-4a28-8580-311996084e20))\r (via  (at \3) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net 0) (tstamp 1 78c4af3-41cd-4a28-8580-311996084e20))/g
+
+# %s/\((fp_text reference .\+ (layer "[FB].SilkS")\n \+\)(effects .\+/\1(effects (font (face "ABeeZee AutoBold") (size 0.8 0.8) (thickness 0.18) bold))/g
