@@ -11970,7 +11970,7 @@
   (symbol (lib_id "MMC5603NJ:MMC5603NJ") (at 93.98 178.435 0) (unit 1)
     (in_bom yes) (on_board yes) (dnp no) (fields_autoplaced)
     (uuid b526bbf5-0cb8-47d2-b887-ed61ccf52dc7)
-    (property "Reference" "U10" (at 106.68 171.45 0)
+    (property "Reference" "U11" (at 106.68 171.45 0)
       (effects (font (size 1.27 1.27)))
     )
     (property "Value" "MMC5603NJ" (at 106.68 173.99 0)
@@ -12013,7 +12013,7 @@
     (instances
       (project "Luminography"
         (path "/0d1277fd-8d7e-44b8-97b8-165ee2ab6faa"
-          (reference "U10") (unit 1)
+          (reference "U11") (unit 1)
         )
       )
     )
@@ -13333,7 +13333,7 @@
   (symbol (lib_id "BMI270:BMI270") (at 128.905 175.895 0) (unit 1)
     (in_bom yes) (on_board yes) (dnp no)
     (uuid cdf8dea4-6763-425b-a572-af8f900807d2)
-    (property "Reference" "U11" (at 151.13 163.83 0)
+    (property "Reference" "U10" (at 151.13 163.83 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
     (property "Value" "BMI270" (at 151.13 166.37 0)
@@ -13383,7 +13383,7 @@
     (instances
       (project "Luminography"
         (path "/0d1277fd-8d7e-44b8-97b8-165ee2ab6faa"
-          (reference "U11") (unit 1)
+          (reference "U10") (unit 1)
         )
       )
     )
