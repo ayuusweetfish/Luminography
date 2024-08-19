@@ -63,6 +63,7 @@ int main()
   // ======== GPIO ========
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   GPIO_InitTypeDef gpio_init;
 
   // SWD (PA13, PA14)
@@ -77,6 +78,14 @@ int main()
   setup_clocks();
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 
+  // PWR_LATCH
+  HAL_GPIO_Init(GPIOC, &(GPIO_InitTypeDef){
+    .Pin = GPIO_PIN_14,
+    .Mode = GPIO_MODE_OUTPUT_PP,
+  });
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 1);
+
+  // LCD_BL
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
     .Pin = GPIO_PIN_4,
     .Mode = GPIO_MODE_OUTPUT_PP,
@@ -84,10 +93,11 @@ int main()
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, 1);
 
   while (1) {
-    static bool parity = 0;
+    static int count = 0;
     swv_printf("hello\n");
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, parity ^= 1);
-    HAL_Delay(500);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, (++count) & 1);
+    HAL_Delay(count * 100);
+    if (count == 6) HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0);
   }
 }
 
