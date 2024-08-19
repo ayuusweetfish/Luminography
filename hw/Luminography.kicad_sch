@@ -10596,7 +10596,7 @@
     (property "Reference" "C20" (at 85.725 178.435 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
-    (property "Value" "2.2u" (at 85.725 180.975 0)
+    (property "Value" "4.7u" (at 85.725 180.975 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
     (property "Footprint" "Capacitor_SMD:C_0402_1005Metric" (at 87.9348 183.515 0)
