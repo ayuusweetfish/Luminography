@@ -92,10 +92,29 @@ int main()
   });
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, 1);
 
+  // LSH_OE (PA4), LED_CLK (PA7), LED_DATA (PA5)
+  HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
+    .Pin = GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_7,
+    .Mode = GPIO_MODE_OUTPUT_PP,
+  });
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, 1);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5 | GPIO_PIN_7, 1);
+
   while (1) {
     static int count = 0;
     swv_printf("hello\n");
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, (++count) & 1);
+
+    // Output to LEDs
+    uint32_t led_data[5] = {0x0, 0xe1ff0000, 0xe100ff00, 0xe10000ff, 0xffffffff};
+    for (int i = 0; i < 5; i++)
+      for (int j = 0; j < 32; j++) {
+        uint8_t b = (led_data[i] >> (31 - j)) & 1;
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, 0); asm volatile ("nop\nnop");
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, b); asm volatile ("nop\nnop");
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, 1); asm volatile ("nop\nnop");
+      }
+
     HAL_Delay(count * 100);
     if (count == 6) HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0);
   }
