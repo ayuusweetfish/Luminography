@@ -12668,7 +12668,7 @@
     (property "Reference" "R9" (at 346.075 36.83 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
-    (property "Value" "2.2k" (at 346.075 39.37 0)
+    (property "Value" "220k" (at 346.075 39.37 0)
       (effects (font (size 1.27 1.27)) (justify left))
     )
     (property "Footprint" "Resistor_SMD:R_0402_1005Metric" (at 341.757 38.1 90)
