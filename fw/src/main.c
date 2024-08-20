@@ -223,12 +223,15 @@ static void i2c_delay()
 {
   for (int i = 0; i < 64 * 10 / 4; i++) asm volatile ("nop");
 }
+// XXX: Debug usage only
+#define SDA_PORT_PIN GPIOB, GPIO_PIN_2
+// #define SDA_PORT_PIN GPIOA, GPIO_PIN_0
 static bool read_SCL() { return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10); }
-static bool read_SDA() { return HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2); }
+static bool read_SDA() { return HAL_GPIO_ReadPin(SDA_PORT_PIN); }
 static void set_SCL() { HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET); }
 static void clear_SCL() { HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET); }
-static void set_SDA() { HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET); }
-static void clear_SDA() { HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET); }
+static void set_SDA() { HAL_GPIO_WritePin(SDA_PORT_PIN, GPIO_PIN_SET); }
+static void clear_SDA() { HAL_GPIO_WritePin(SDA_PORT_PIN, GPIO_PIN_RESET); }
 
 // 0 - no error
 // 1 - no acknowledgement
@@ -396,8 +399,8 @@ static void i2c_read_reg(uint8_t addr, uint8_t reg, size_t size, uint8_t *buf)
 
 static inline uint16_t bh1750fvi_readout(uint8_t addr)
 {
-  // One Time H-Resolution Mode2
-  uint8_t op = 0x21; i2c_write(addr, &op, 1);
+  // One Time H-Resolution Mode
+  uint8_t op = 0x20; i2c_write(addr, &op, 1);
   HAL_Delay(200);
   uint8_t result[2];
   i2c_read(addr, result, 2);
@@ -450,7 +453,7 @@ int main()
 
   // I2Cx
   HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
-    .Pin = GPIO_PIN_10,
+    .Pin = GPIO_PIN_0 | GPIO_PIN_10,
     .Mode = GPIO_MODE_OUTPUT_OD,
   });
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
