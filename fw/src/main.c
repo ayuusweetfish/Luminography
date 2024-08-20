@@ -453,7 +453,7 @@ int main()
 
   // I2Cx
   HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
-    .Pin = GPIO_PIN_0 | GPIO_PIN_10,
+    .Pin = GPIO_PIN_0 | GPIO_PIN_2 | GPIO_PIN_10,
     .Mode = GPIO_MODE_OUTPUT_OD,
   });
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
@@ -464,6 +464,16 @@ int main()
 
   uint32_t lx = bh1750fvi_readout(0b0100011 << 1);
   swv_printf("%u lx, I2C err = %u\n", lx, i2c_err);
+
+  // Buttons
+  HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
+    .Pin = GPIO_PIN_6,
+    .Mode = GPIO_MODE_INPUT,
+  });
+  HAL_GPIO_Init(GPIOC, &(GPIO_InitTypeDef){
+    .Pin = GPIO_PIN_13,
+    .Mode = GPIO_MODE_INPUT,
+  });
 
   // LCD_RSTN (PB6), LCD_BL (PB4), LCD_DC (PB5), LCD_CS (PB9)
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
@@ -528,15 +538,15 @@ int main()
 
     uint32_t lx = bh1750fvi_readout(0b0100011 << 1);
     char s[64];
-    snprintf(s, sizeof s, "%u lx\nI2C err = %u\n", lx, i2c_err);
+    snprintf(s, sizeof s, "%u lx\nI2C err = %u\nline = %d", lx, i2c_err, i2c_first_err_line);
     lcd_print_str(s, 70, 50);
 
     // Output to LEDs
     uint32_t led_data[5] = {0x0, 0xe1ff0000, 0xe100ff00, 0xe10000ff, 0xffffffff};
     led_write(led_data, 5);
 
-    HAL_Delay(count * 100);
-    if (count == 6) {
+    HAL_Delay(100);
+    if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
       led_flush();
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0); // PWR_LATCH
     }
