@@ -93,6 +93,196 @@ static inline void led_flush()
 
 #include "lcd.h"
 
+// 10 us = 100 kHz
+#pragma GCC push_options
+#pragma GCC optimize("O3")
+static void i2c_delay()
+{
+  for (int i = 0; i < 64 * 10 / 4; i++) asm volatile ("nop");
+}
+static bool read_SCL() { return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10); }
+static bool read_SDA() { return HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2); }
+static void set_SCL() { HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET); }
+static void clear_SCL() { HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET); }
+static void set_SDA() { HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET); }
+static void clear_SDA() { HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET); }
+
+// 0 - no error
+// 1 - no acknowledgement
+// 2 - timeout
+// 4 - bus error, arbitration lost
+static int i2c_err = 0;
+static int i2c_first_err_line = -1;
+
+static void i2c_mark_err(int line, int flag)
+{
+  if (i2c_err == 0) i2c_first_err_line = line;
+  i2c_err |= flag;
+}
+
+static void wait_SCL_rise(int line)
+{
+  for (int i = 0; i < 2; i++) {
+    i2c_delay();
+    if (read_SCL()) return;
+  }
+  i2c_mark_err(line, 2);
+}
+
+static bool started = false;
+
+static void i2c_init()
+{
+  clear_SCL();
+  clear_SDA();
+}
+
+static void i2c_start_cond(void)
+{
+  set_SDA();
+  i2c_delay();
+
+  set_SCL();
+  wait_SCL_rise(__LINE__);
+  i2c_delay();
+
+  if (read_SDA() == 0) {
+    i2c_mark_err(__LINE__, 4);
+    return;
+  }
+
+  clear_SDA();
+  i2c_delay();
+
+  clear_SCL();
+  started = true;
+}
+
+static void i2c_stop_cond(void)
+{
+  clear_SDA();
+  i2c_delay();
+
+  set_SCL();
+  wait_SCL_rise(__LINE__);
+
+  i2c_delay();
+
+  set_SDA();
+  i2c_delay();
+
+  if (read_SDA() == 0) {
+    i2c_mark_err(__LINE__, 4);
+    return;
+  }
+
+  started = false;
+}
+
+// Write a bit to I2C bus
+static void i2c_write_bit(bool bit)
+{
+  if (bit) set_SDA();
+  else clear_SDA();
+
+  i2c_delay();
+  set_SCL();
+
+  i2c_delay();
+  wait_SCL_rise(__LINE__);
+
+  if (bit && (read_SDA() == 0)) {
+    i2c_mark_err(__LINE__, 4);
+    return;
+  }
+
+  clear_SCL();
+}
+
+// Read a bit from I2C bus
+static bool i2c_read_bit(void)
+{
+  set_SDA();
+  i2c_delay();
+
+  set_SCL();
+  wait_SCL_rise(__LINE__);
+
+  i2c_delay();
+  bool bit = read_SDA();
+  clear_SCL();
+  return bit;
+}
+
+// Write a byte to I2C bus. Return 0 if ACK'ed by the target.
+static bool i2c_write_byte(bool send_start, bool send_stop, unsigned char byte)
+{
+  if (send_start) i2c_start_cond();
+  for (int bit = 0; bit < 8; ++bit) {
+    i2c_write_bit((byte & 0x80) != 0);
+    byte <<= 1;
+  }
+  bool nack = i2c_read_bit();
+  if (send_stop) i2c_stop_cond();
+  if (nack) i2c_mark_err(__LINE__, 1);
+  return nack;
+}
+
+// Read a byte from I2C bus
+static uint8_t i2c_read_byte(bool nack, bool send_stop)
+{
+  uint8_t byte = 0;
+  for (int bit = 0; bit < 8; ++bit)
+    byte = (byte << 1) | i2c_read_bit();
+  i2c_write_bit(nack);
+  if (send_stop) i2c_stop_cond();
+  return byte;
+}
+
+static void i2c_write(uint8_t addr, const uint8_t *data, size_t size)
+{
+  i2c_write_byte(true, false, addr);
+  for (size_t i = 0; i < size; i++)
+    i2c_write_byte(false, (i == size - 1), data[i]);
+}
+
+static void i2c_read(uint8_t addr, uint8_t *buf, size_t size)
+{
+  i2c_write_byte(true, false, addr | 1);
+  for (size_t i = 0; i < size; i++)
+    buf[i] = i2c_read_byte(i == size - 1, i == size - 1);
+}
+
+static void i2c_write_reg_byte(uint8_t addr, uint8_t reg, uint8_t data)
+{
+  i2c_write_byte(true, false, addr);
+  i2c_write_byte(false, false, reg);
+  i2c_write_byte(false, true, data);
+}
+
+static void i2c_read_reg(uint8_t addr, uint8_t reg, size_t size, uint8_t *buf)
+{
+  i2c_write_byte(true, false, addr);
+  i2c_write_byte(false, false, reg);
+  i2c_write_byte(true, false, addr | 1);
+  for (size_t i = 0; i < size; i++)
+    buf[i] = i2c_read_byte(i == size - 1, i == size - 1);
+}
+#pragma GCC pop_options
+// End of I2C
+
+static inline uint16_t bh1750fvi_readout(uint8_t addr)
+{
+  // One Time H-Resolution Mode2
+  uint8_t op = 0x21; i2c_write(addr, &op, 1);
+  HAL_Delay(200);
+  uint8_t result[2];
+  i2c_read(addr, result, 2);
+  uint16_t lx = ((uint16_t)result[0] << 8) | result[1];
+  lx = (lx * 5 + 3) / 6;
+  return lx;
+}
+
 int main()
 {
   HAL_Init();
@@ -134,6 +324,20 @@ int main()
   // Clear LED memory (possibly retained due to close successive power cycles
   // insufficient for the boosted 5 V voltage to decay)
   led_flush();
+
+  // I2Cx
+  HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
+    .Pin = GPIO_PIN_10,
+    .Mode = GPIO_MODE_OUTPUT_OD,
+  });
+  HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
+    .Pin = GPIO_PIN_2,
+    .Mode = GPIO_MODE_OUTPUT_OD,
+  });
+  i2c_init();
+
+  uint32_t lx = bh1750fvi_readout(0b0100011 << 1);
+  swv_printf("%u lx, I2C err = %u\n", lx, i2c_err);
 
   // LCD_RSTN (PB6), LCD_BL (PB4), LCD_DC (PB5), LCD_CS (PB9)
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
