@@ -36,6 +36,8 @@ static void swv_printf(const char *restrict fmt, ...)
   }
 }
 
+SPI_HandleTypeDef spi2;
+
 void setup_clocks()
 {
   RCC_OscInitTypeDef osc_init = { 0 };
@@ -76,6 +78,8 @@ static inline void blast_led(const uint32_t *data, size_t n)
 }
 #pragma GCC pop_options
 
+#include "lcd.h"
+
 int main()
 {
   HAL_Init();
@@ -106,12 +110,47 @@ int main()
   });
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 1);
 
-  // LCD_BL
+  // LCD_RSTN (PB6), LCD_BL (PB4), LCD_DC (PB5), LCD_CS (PB9)
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
-    .Pin = GPIO_PIN_4,
+    .Pin = GPIO_PIN_6 | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_9,
     .Mode = GPIO_MODE_OUTPUT_PP,
   });
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, 0);
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, 1);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, 0);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
+
+  // ======== SPI ========
+  // SPI2_MOSI (PB7), SPI2_SCK (PB8)
+  HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
+    .Pin = GPIO_PIN_7 | GPIO_PIN_8,
+    .Mode = GPIO_MODE_AF_PP,
+    .Alternate = GPIO_AF1_SPI2,
+    .Speed = GPIO_SPEED_FREQ_HIGH,
+  });
+  __HAL_RCC_SPI2_CLK_ENABLE();
+  spi2 = (SPI_HandleTypeDef){
+    .Instance = SPI2,
+    .Init = {
+      .Mode = SPI_MODE_MASTER,
+      .Direction = SPI_DIRECTION_2LINES,
+      .CLKPolarity = SPI_POLARITY_LOW,  // CPOL = 0
+      .CLKPhase = SPI_PHASE_1EDGE,      // CPHA = 0
+      .NSS = SPI_NSS_SOFT,
+      .FirstBit = SPI_FIRSTBIT_MSB,
+      .TIMode = SPI_TIMODE_DISABLE,
+      .CRCCalculation = SPI_CRCCALCULATION_DISABLE,
+      .DataSize = SPI_DATASIZE_8BIT,
+      .BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2,
+    },
+  };
+  HAL_SPI_Init(&spi2);
+  __HAL_SPI_ENABLE(&spi2);
+
+  lcd_init();
+
+  lcd_addr(120, 120, 180, 180);
+  for (int i = 0; i < 60 * 60; i++) lcd_data16(0xffff);
 
   // LSH_OE (PA4), LED_CLK (PA7), LED_DATA (PA5)
   HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
