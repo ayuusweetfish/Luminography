@@ -151,11 +151,10 @@ int main()
 
   lcd_init();
 
-  lcd_addr(90, 90, 150, 150);
-  // uint8_t p[60 * 60 * 2];
-  // for (int i = 0; i < 60 * 60 * 2; i++) p[i] = 0xff;
-  // lcd_data_bulk(p, 60 * 60 * 2);
-  for (int i = 0; i < 60 * 60; i++) lcd_data16(0xffff);
+  lcd_addr(105, 105, 134, 134);
+  static uint8_t p[30 * 30 * 2];
+  for (int i = 0; i < 30 * 30 * 2; i++) p[i] = 0xff;
+  lcd_data_bulk(p, 30 * 30 * 2);
 
   // LSH_OE (PA4), LED_CLK (PA7), LED_DATA (PA5)
   HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
@@ -169,7 +168,18 @@ int main()
   while (1) {
     static int count = 0;
     swv_printf("hello\n");
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, (++count) & 1);
+    // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, (++count) & 1);
+
+    count++;
+    for (int i = 0; i < 30 * 30 * 2; i += 2) {
+      p[i + 0] = 0xff;
+      p[i + 1] = 0xff - (count << 2);
+      if (count == 6) {
+        p[i + 0] = 0b00000010;
+        p[i + 1] = 0b00000000;
+      }
+    }
+    lcd_data_bulk(p, 30 * 30 * 2);
 
     // Output to LEDs
     uint32_t led_data[5] = {0x0, 0xe1ff0000, 0xe100ff00, 0xe10000ff, 0xffffffff};
