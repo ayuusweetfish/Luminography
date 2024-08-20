@@ -64,7 +64,7 @@ void setup_clocks()
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
-static inline void blast_led(const uint32_t *data, size_t n)
+static inline void led_write(const uint32_t *data, size_t n)
 {
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, 1);
   __disable_irq();
@@ -81,6 +81,15 @@ static inline void blast_led(const uint32_t *data, size_t n)
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, 0);
 }
 #pragma GCC pop_options
+
+static inline void led_flush()
+{
+  uint32_t data[26];
+  data[0] = 0x0;
+  for (int i = 1; i < 25; i++) data[i] = 0xe0000000;
+  data[25] = 0xffffffff;
+  led_write(data, 26);
+}
 
 #include "lcd.h"
 
@@ -124,11 +133,7 @@ int main()
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, 0);
   // Clear LED memory (possibly retained due to close successive power cycles
   // insufficient for the boosted 5 V voltage to decay)
-  uint32_t led_flush[26];
-  led_flush[0] = 0x0;
-  for (int i = 1; i < 25; i++) led_flush[i] = 0xe0000000;
-  led_flush[25] = 0xffffffff;
-  blast_led(led_flush, 26);
+  led_flush();
 
   // LCD_RSTN (PB6), LCD_BL (PB4), LCD_DC (PB5), LCD_CS (PB9)
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
@@ -192,10 +197,13 @@ int main()
 
     // Output to LEDs
     uint32_t led_data[5] = {0x0, 0xe1ff0000, 0xe100ff00, 0xe10000ff, 0xffffffff};
-    blast_led(led_data, 5);
+    led_write(led_data, 5);
 
     HAL_Delay(count * 100);
-    if (count == 6) HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0);
+    if (count == 6) {
+      led_flush();
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0); // PWR_LATCH
+    }
   }
 }
 
