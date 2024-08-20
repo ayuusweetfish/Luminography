@@ -66,6 +66,7 @@ void setup_clocks()
 #pragma GCC optimize("O3")
 static inline void blast_led(const uint32_t *data, size_t n)
 {
+  __disable_irq();
   for (int i = 0; i < n; i++)
     #pragma GCC unroll 32
     for (int j = 0; j < 32; j++) {
@@ -75,6 +76,7 @@ static inline void blast_led(const uint32_t *data, size_t n)
       asm volatile ("nop");
       GPIOA->BSRR = 1 << 7;
     }
+  __enable_irq();
 }
 #pragma GCC pop_options
 
@@ -149,7 +151,10 @@ int main()
 
   lcd_init();
 
-  lcd_addr(120, 120, 180, 180);
+  lcd_addr(90, 90, 150, 150);
+  // uint8_t p[60 * 60 * 2];
+  // for (int i = 0; i < 60 * 60 * 2; i++) p[i] = 0xff;
+  // lcd_data_bulk(p, 60 * 60 * 2);
   for (int i = 0; i < 60 * 60; i++) lcd_data16(0xffff);
 
   // LSH_OE (PA4), LED_CLK (PA7), LED_DATA (PA5)

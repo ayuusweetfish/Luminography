@@ -7,6 +7,15 @@ static inline void lcd_data(uint8_t x)
 {
   lcd_cs(0);
   HAL_SPI_Transmit(&spi2, &x, 1, 1000);
+/*
+  while (!(SPI2->SR & SPI_SR_TXE)) { }
+  SPI2->DR = x;
+  while (!(SPI2->SR & SPI_SR_TXE)) { }
+  while ((SPI2->SR & SPI_SR_BSY)) { }
+  // Clear OVR flag
+  (void)SPI2->DR;
+  (void)SPI2->SR;
+*/
   lcd_cs(1);
 }
 
@@ -14,6 +23,13 @@ static inline void lcd_data16(uint16_t x)
 {
   lcd_data(x >> 8);
   lcd_data(x & 0xff);
+}
+
+static inline void lcd_data_bulk(const uint8_t *x, uint32_t n)
+{
+  lcd_cs(0);
+  HAL_SPI_Transmit(&spi2, (uint8_t *)x, n, 1000);
+  lcd_cs(1);
 }
 
 static inline void lcd_reg(uint8_t x)
