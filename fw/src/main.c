@@ -232,6 +232,7 @@ static void set_SCL() { HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET); }
 static void clear_SCL() { HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET); }
 static void set_SDA() { HAL_GPIO_WritePin(SDA_PORT_PIN, GPIO_PIN_SET); }
 static void clear_SDA() { HAL_GPIO_WritePin(SDA_PORT_PIN, GPIO_PIN_RESET); }
+static bool is_SDA_all_set() { return HAL_GPIO_ReadPin(SDA_PORT_PIN) == 1; }
 
 // 0 - no error
 // 1 - no acknowledgement
@@ -272,7 +273,7 @@ static void i2c_start_cond(void)
   wait_SCL_rise(__LINE__);
   i2c_delay();
 
-  if (read_SDA() == 0) {
+  if (!is_SDA_all_set()) {
     i2c_mark_err(__LINE__, 4);
     return;
   }
@@ -297,7 +298,7 @@ static void i2c_stop_cond(void)
   set_SDA();
   i2c_delay();
 
-  if (read_SDA() == 0) {
+  if (!is_SDA_all_set()) {
     i2c_mark_err(__LINE__, 4);
     return;
   }
@@ -306,7 +307,29 @@ static void i2c_stop_cond(void)
 }
 
 // Write a bit to I2C bus
-static void i2c_write_bit(bool bit)
+static void i2c_write_bit(uint8_t *a)
+{
+  bool bit = (a[0] & 0x80) != 0;
+  a[0] <<= 1;
+
+  if (bit) set_SDA();
+  else clear_SDA();
+
+  i2c_delay();
+  set_SCL();
+
+  i2c_delay();
+  wait_SCL_rise(__LINE__);
+
+  if (bit && !is_SDA_all_set()) {
+    i2c_mark_err(__LINE__, 4);
+    return;
+  }
+
+  clear_SCL();
+}
+
+static void i2c_write_nack(bool bit)
 {
   if (bit) set_SDA();
   else clear_SDA();
@@ -317,7 +340,7 @@ static void i2c_write_bit(bool bit)
   i2c_delay();
   wait_SCL_rise(__LINE__);
 
-  if (bit && (read_SDA() == 0)) {
+  if (bit && !is_SDA_all_set()) {
     i2c_mark_err(__LINE__, 4);
     return;
   }
@@ -326,7 +349,7 @@ static void i2c_write_bit(bool bit)
 }
 
 // Read a bit from I2C bus
-static bool i2c_read_bit(void)
+static void i2c_read_bit(uint8_t *a)
 {
   set_SDA();
   i2c_delay();
@@ -337,6 +360,21 @@ static bool i2c_read_bit(void)
   i2c_delay();
   bool bit = read_SDA();
   clear_SCL();
+
+  a[0] = (a[0] << 1) | bit;
+}
+
+static bool i2c_read_nack()
+{
+  set_SDA();
+  i2c_delay();
+
+  set_SCL();
+  wait_SCL_rise(__LINE__);
+
+  i2c_delay();
+  bool bit = is_SDA_all_set();
+  clear_SCL();
   return bit;
 }
 
@@ -344,11 +382,9 @@ static bool i2c_read_bit(void)
 static bool i2c_write_byte(bool send_start, bool send_stop, unsigned char byte)
 {
   if (send_start) i2c_start_cond();
-  for (int bit = 0; bit < 8; ++bit) {
-    i2c_write_bit((byte & 0x80) != 0);
-    byte <<= 1;
-  }
-  bool nack = i2c_read_bit();
+  for (int bit = 0; bit < 8; ++bit)
+    i2c_write_bit(&byte);
+  bool nack = i2c_read_nack();
   if (send_stop) i2c_stop_cond();
   if (nack) i2c_mark_err(__LINE__, 1);
   return nack;
@@ -357,12 +393,11 @@ static bool i2c_write_byte(bool send_start, bool send_stop, unsigned char byte)
 // Read a byte from I2C bus
 static uint8_t i2c_read_byte(bool nack, bool send_stop)
 {
-  uint8_t byte = 0;
-  for (int bit = 0; bit < 8; ++bit)
-    byte = (byte << 1) | i2c_read_bit();
-  i2c_write_bit(nack);
+  uint8_t byte[4] = { 0 };
+  for (int bit = 0; bit < 8; ++bit) i2c_read_bit(byte);
+  i2c_write_nack(nack);
   if (send_stop) i2c_stop_cond();
-  return byte;
+  return byte[0];
 }
 
 static void i2c_write(uint8_t addr, const uint8_t *data, size_t size)
