@@ -223,16 +223,25 @@ static void i2c_delay()
 {
   for (int i = 0; i < 64 * 10 / 4; i++) asm volatile ("nop");
 }
-// XXX: Debug usage only
-#define SDA_PORT_PIN GPIOB, GPIO_PIN_2
-// #define SDA_PORT_PIN GPIOA, GPIO_PIN_0
 static bool read_SCL() { return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10); }
-static bool read_SDA() { return HAL_GPIO_ReadPin(SDA_PORT_PIN); }
 static void set_SCL() { HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET); }
 static void clear_SCL() { HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET); }
-static void set_SDA() { HAL_GPIO_WritePin(SDA_PORT_PIN, GPIO_PIN_SET); }
-static void clear_SDA() { HAL_GPIO_WritePin(SDA_PORT_PIN, GPIO_PIN_RESET); }
-static bool is_SDA_all_set() { return HAL_GPIO_ReadPin(SDA_PORT_PIN) == 1; }
+
+static uint32_t (*read_SDA)();
+static void (*write_SDA)();
+static bool (*is_SDA_all_set)();
+
+static uint32_t _read_SDA() {
+  return (GPIOB->IDR >> 2) & 1;
+}
+static void _write_SDA(uint32_t value) {
+  uint32_t mask_b = 1 << 2;
+  GPIOB->ODR = (GPIOB->ODR & ~mask_b) | (value << 2);
+}
+static bool _is_SDA_all_set() {
+  uint32_t mask_b = 1 << 2;
+  return (GPIOB->IDR & mask_b) == mask_b;
+}
 
 // 0 - no error
 // 1 - no acknowledgement
@@ -261,12 +270,12 @@ static bool started = false;
 static void i2c_init()
 {
   clear_SCL();
-  clear_SDA();
+  write_SDA(0x00000000);
 }
 
 static void i2c_start_cond(void)
 {
-  set_SDA();
+  write_SDA(0xffffffff);
   i2c_delay();
 
   set_SCL();
@@ -278,7 +287,7 @@ static void i2c_start_cond(void)
     return;
   }
 
-  clear_SDA();
+  write_SDA(0x00000000);
   i2c_delay();
 
   clear_SCL();
@@ -287,7 +296,7 @@ static void i2c_start_cond(void)
 
 static void i2c_stop_cond(void)
 {
-  clear_SDA();
+  write_SDA(0x00000000);
   i2c_delay();
 
   set_SCL();
@@ -295,7 +304,7 @@ static void i2c_stop_cond(void)
 
   i2c_delay();
 
-  set_SDA();
+  write_SDA(0xffffffff);
   i2c_delay();
 
   if (!is_SDA_all_set()) {
@@ -309,11 +318,10 @@ static void i2c_stop_cond(void)
 // Write a bit to I2C bus
 static void i2c_write_bit(uint8_t *a)
 {
-  bool bit = (a[0] & 0x80) != 0;
+  uint32_t bitset = (a[0] >> 7) & 1;
   a[0] <<= 1;
 
-  if (bit) set_SDA();
-  else clear_SDA();
+  write_SDA(bitset);
 
   i2c_delay();
   set_SCL();
@@ -321,7 +329,7 @@ static void i2c_write_bit(uint8_t *a)
   i2c_delay();
   wait_SCL_rise(__LINE__);
 
-  if (bit && !is_SDA_all_set()) {
+  if ((read_SDA() & bitset) != bitset) {
     i2c_mark_err(__LINE__, 4);
     return;
   }
@@ -331,8 +339,8 @@ static void i2c_write_bit(uint8_t *a)
 
 static void i2c_write_nack(bool bit)
 {
-  if (bit) set_SDA();
-  else clear_SDA();
+  if (bit) write_SDA(0xffffffff);
+  else write_SDA(0x00000000);
 
   i2c_delay();
   set_SCL();
@@ -351,14 +359,14 @@ static void i2c_write_nack(bool bit)
 // Read a bit from I2C bus
 static void i2c_read_bit(uint8_t *a)
 {
-  set_SDA();
+  write_SDA(0xffffffff);
   i2c_delay();
 
   set_SCL();
   wait_SCL_rise(__LINE__);
 
   i2c_delay();
-  bool bit = read_SDA();
+  uint32_t bit = read_SDA();
   clear_SCL();
 
   a[0] = (a[0] << 1) | bit;
@@ -366,7 +374,7 @@ static void i2c_read_bit(uint8_t *a)
 
 static bool i2c_read_nack()
 {
-  set_SDA();
+  write_SDA(0xffffffff);
   i2c_delay();
 
   set_SCL();
@@ -495,6 +503,10 @@ int main()
     .Pin = GPIO_PIN_2,
     .Mode = GPIO_MODE_OUTPUT_OD,
   });
+
+  read_SDA = _read_SDA;
+  write_SDA = _write_SDA;
+  is_SDA_all_set = _is_SDA_all_set;
   i2c_init();
 
   uint32_t lx = bh1750fvi_readout(0b0100011 << 1);
