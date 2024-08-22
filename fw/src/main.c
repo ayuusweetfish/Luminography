@@ -235,12 +235,16 @@ static void (*write_SDA)();
 static uint32_t _read_SDA() {
   return
     (((GPIOA->IDR >> 0) & 1) <<  5) |
+    // (((GPIOA->IDR >> 1) & 1) <<  6) |
     (((GPIOB->IDR >> 2) & 1) << 11) |
     0xfffff7df;
 }
 static void _write_SDA(uint32_t value) {
-  uint32_t mask_a = 1 << 0;
-  GPIOA->ODR = (GPIOA->ODR & ~mask_a) | (((value >>  5) & 1) << 0);
+  uint32_t mask_a = (1 << 0) /* | (1 << 1) */;
+  GPIOA->ODR = (GPIOA->ODR & ~mask_a)
+    | (((value >>  5) & 1) << 0)
+    // | (((value >>  6) & 1) << 1)
+    ;
   uint32_t mask_b = 1 << 2;
   GPIOB->ODR = (GPIOB->ODR & ~mask_b) | (((value >> 11) & 1) << 2);
 }
@@ -569,16 +573,24 @@ int main()
   led_flush();
 
   // I2Cx
+  const uint32_t i2cx_gpioa_pins =
+    GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_10;
   HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
-    .Pin = GPIO_PIN_0 | GPIO_PIN_2 | GPIO_PIN_10,
+    .Pin = i2cx_gpioa_pins,
     .Mode = GPIO_MODE_OUTPUT_OD,
     .Pull = GPIO_PULLUP,
   });
+  GPIOA->BSRR = i2cx_gpioa_pins;  // Set to release signal lines
+
+  const uint32_t i2cx_gpiob_pins =
+    GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 |
+    GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14;
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
-    .Pin = GPIO_PIN_2 | GPIO_PIN_14,
+    .Pin = i2cx_gpiob_pins,
     .Mode = GPIO_MODE_OUTPUT_OD,
     .Pull = GPIO_PULLUP,
   });
+  GPIOB->BSRR = i2cx_gpiob_pins;
 
   read_SDA = _read_SDA_04;
   write_SDA = _write_SDA_04;
@@ -729,7 +741,7 @@ int main()
 
     bh1750fvi_readout(0b0100011 << 1, lx);
     char s[64];
-    snprintf(s, sizeof s, "%5u %5u lx\nI2C err = %u\nline = %d", lx[5], lx[11], i2c_err, i2c_first_err_line);
+    snprintf(s, sizeof s, "%5u %5u %5u lx\nI2C err = %u\nline = %d", lx[5], lx[6], lx[11], i2c_err, i2c_first_err_line);
     lcd_print_str(s, 70, 50);
 
     // Output to LEDs
