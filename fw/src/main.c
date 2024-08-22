@@ -216,12 +216,14 @@ static inline void lcd_print_str(const char *s, int r, int c)
   }
 }
 
-// 10 us = 100 kHz
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 static void i2c_delay()
 {
-  for (int i = 0; i < 64 * 10 / 4; i++) asm volatile ("nop");
+  // 10 us = 100 kHz
+  // NOTE: Lower frequency might be used with internal weak pull-ups and/or for debugging
+  static const uint32_t us = 100;
+  for (int i = 0; i < 64 * us / 4; i++) asm volatile ("nop");
 }
 static bool read_SCL() { return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10); }
 static void set_SCL() { HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET); }
@@ -241,6 +243,20 @@ static void _write_SDA(uint32_t value) {
   GPIOA->ODR = (GPIOA->ODR & ~mask_a) | (((value >>  5) & 1) << 0);
   uint32_t mask_b = 1 << 2;
   GPIOB->ODR = (GPIOB->ODR & ~mask_b) | (((value >> 11) & 1) << 2);
+}
+
+static uint32_t _read_SDA_04() {
+  return ((GPIOB->IDR >> 14) & 1) | 0xfffffffe;
+}
+static void _write_SDA_04(uint32_t value) {
+  GPIOB->BSRR = (value & 1) ? (1 << 14) : (1 << 30);
+}
+
+static uint32_t _read_SDA_06() {
+  return ((GPIOA->IDR >> 1) & 1) | 0xfffffffe;
+}
+static void _write_SDA_06(uint32_t value) {
+  GPIOA->BSRR = (value & 1) ? (1 << 1) : (1 << 17);
 }
 
 // 0 - no error
@@ -433,23 +449,24 @@ static void i2c_read(uint8_t addr, uint8_t *buf, size_t size)
     i2c_read_byte(i == size - 1, i == size - 1, buf + 12 * i);
 }
 
-/*
 static void i2c_write_reg_byte(uint8_t addr, uint8_t reg, uint8_t data)
 {
-  i2c_write_byte(true, false, addr);
-  i2c_write_byte(false, false, reg);
-  i2c_write_byte(false, true, data);
+  i2c_write_byte_all(true, false, addr);
+  i2c_write_byte_all(false, false, reg);
+  i2c_write_byte_all(false, true, data);
 }
 
 static void i2c_read_reg(uint8_t addr, uint8_t reg, size_t size, uint8_t *buf)
 {
-  i2c_write_byte(true, false, addr);
-  i2c_write_byte(false, false, reg);
-  i2c_write_byte(true, false, addr | 1);
-  for (size_t i = 0; i < size; i++)
-    buf[i] = i2c_read_byte(i == size - 1, i == size - 1);
+  i2c_write_byte_all(true, false, addr);
+  i2c_write_byte_all(false, false, reg);
+  i2c_write_byte_all(true, false, addr | 1);
+  uint8_t t[12];
+  for (size_t i = 0; i < size; i++) {
+    i2c_read_byte(i == size - 1, i == size - 1, t);
+    buf[i] = t[0];
+  }
 }
-*/
 #pragma GCC pop_options
 // End of I2C
 
@@ -467,6 +484,47 @@ static inline void bh1750fvi_readout(uint8_t addr, uint16_t results[12])
     results[i] = lx;
   }
 }
+
+static inline uint8_t bmi270_read_reg(uint8_t reg)
+{
+  uint8_t value;
+  i2c_read_reg(0b11010000, reg, 1, &value);
+  return value;
+}
+static inline void bmi270_write_reg(uint8_t reg, uint8_t value)
+{
+  i2c_write_reg_byte(0b11010000, reg, value);
+}
+static inline void bmi270_read_burst(uint8_t reg, uint8_t *data, uint32_t len)
+{
+  i2c_read_reg(0b11010000, reg, len, data);
+}
+static inline void bmi270_write_burst(const uint8_t *data, uint32_t len)
+{
+  i2c_write(0b11010000, data, len);
+}
+static const uint8_t bmi270_config_file[] = {
+  0x5E,
+  // bmi270_maximum_fifo_config_file
+  0xc8, 0x2e, 0x00, 0x2e, 0x80, 0x2e, 0x1a, 0x00, 0xc8, 0x2e, 0x00, 0x2e, 0xc8, 0x2e, 0x00, 0x2e, 0xc8, 0x2e, 0x00,
+  0x2e, 0xc8, 0x2e, 0x00, 0x2e, 0xc8, 0x2e, 0x00, 0x2e, 0xc8, 0x2e, 0x00, 0x2e, 0x90, 0x32, 0x21, 0x2e, 0x59, 0xf5,
+  0x10, 0x30, 0x21, 0x2e, 0x6a, 0xf5, 0x1a, 0x24, 0x22, 0x00, 0x80, 0x2e, 0x3b, 0x00, 0xc8, 0x2e, 0x44, 0x47, 0x22,
+  0x00, 0x37, 0x00, 0xa4, 0x00, 0xff, 0x0f, 0xd1, 0x00, 0x07, 0xad, 0x80, 0x2e, 0x00, 0xc1, 0x80, 0x2e, 0x00, 0xc1,
+  0x80, 0x2e, 0x00, 0xc1, 0x80, 0x2e, 0x00, 0xc1, 0x80, 0x2e, 0x00, 0xc1, 0x80, 0x2e, 0x00, 0xc1, 0x80, 0x2e, 0x00,
+  0xc1, 0x80, 0x2e, 0x00, 0xc1, 0x80, 0x2e, 0x00, 0xc1, 0x80, 0x2e, 0x00, 0xc1, 0x80, 0x2e, 0x00, 0xc1, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x11, 0x24, 0xfc, 0xf5, 0x80, 0x30, 0x40, 0x42, 0x50, 0x50, 0x00, 0x30, 0x12, 0x24, 0xeb,
+  0x00, 0x03, 0x30, 0x00, 0x2e, 0xc1, 0x86, 0x5a, 0x0e, 0xfb, 0x2f, 0x21, 0x2e, 0xfc, 0xf5, 0x13, 0x24, 0x63, 0xf5,
+  0xe0, 0x3c, 0x48, 0x00, 0x22, 0x30, 0xf7, 0x80, 0xc2, 0x42, 0xe1, 0x7f, 0x3a, 0x25, 0xfc, 0x86, 0xf0, 0x7f, 0x41,
+  0x33, 0x98, 0x2e, 0xc2, 0xc4, 0xd6, 0x6f, 0xf1, 0x30, 0xf1, 0x08, 0xc4, 0x6f, 0x11, 0x24, 0xff, 0x03, 0x12, 0x24,
+  0x00, 0xfc, 0x61, 0x09, 0xa2, 0x08, 0x36, 0xbe, 0x2a, 0xb9, 0x13, 0x24, 0x38, 0x00, 0x64, 0xbb, 0xd1, 0xbe, 0x94,
+  0x0a, 0x71, 0x08, 0xd5, 0x42, 0x21, 0xbd, 0x91, 0xbc, 0xd2, 0x42, 0xc1, 0x42, 0x00, 0xb2, 0xfe, 0x82, 0x05, 0x2f,
+  0x50, 0x30, 0x21, 0x2e, 0x21, 0xf2, 0x00, 0x2e, 0x00, 0x2e, 0xd0, 0x2e, 0xf0, 0x6f, 0x02, 0x30, 0x02, 0x42, 0x20,
+  0x26, 0xe0, 0x6f, 0x02, 0x31, 0x03, 0x40, 0x9a, 0x0a, 0x02, 0x42, 0xf0, 0x37, 0x05, 0x2e, 0x5e, 0xf7, 0x10, 0x08,
+  0x12, 0x24, 0x1e, 0xf2, 0x80, 0x42, 0x83, 0x84, 0xf1, 0x7f, 0x0a, 0x25, 0x13, 0x30, 0x83, 0x42, 0x3b, 0x82, 0xf0,
+  0x6f, 0x00, 0x2e, 0x00, 0x2e, 0xd0, 0x2e, 0x12, 0x40, 0x52, 0x42, 0x00, 0x2e, 0x12, 0x40, 0x52, 0x42, 0x3e, 0x84,
+  0x00, 0x40, 0x40, 0x42, 0x7e, 0x82, 0xe1, 0x7f, 0xf2, 0x7f, 0x98, 0x2e, 0x6a, 0xd6, 0x21, 0x30, 0x23, 0x2e, 0x61,
+  0xf5, 0xeb, 0x2c, 0xe1, 0x6f
+};
 
 int main()
 {
@@ -514,11 +572,81 @@ int main()
   HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
     .Pin = GPIO_PIN_0 | GPIO_PIN_2 | GPIO_PIN_10,
     .Mode = GPIO_MODE_OUTPUT_OD,
+    .Pull = GPIO_PULLUP,
   });
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
-    .Pin = GPIO_PIN_2,
+    .Pin = GPIO_PIN_2 | GPIO_PIN_14,
     .Mode = GPIO_MODE_OUTPUT_OD,
+    .Pull = GPIO_PULLUP,
   });
+
+  read_SDA = _read_SDA_04;
+  write_SDA = _write_SDA_04;
+  i2c_init();
+
+  uint8_t chip_id = bmi270_read_reg(0x00);
+  swv_printf("BMI270 chip ID = 0x%02x, I2C err = %u, line = %d\n",
+    (int)chip_id, i2c_err, i2c_first_err_line); // Should read 0x24
+  bmi270_write_reg(0x7E, 0xB6); // Soft reset
+  HAL_Delay(1);
+
+  bmi270_write_reg(0x7C, 0x00);
+  HAL_Delay(1);
+  bmi270_write_reg(0x59, 0x00);
+  bmi270_write_burst(bmi270_config_file, sizeof bmi270_config_file);
+  bmi270_write_reg(0x59, 0x01);
+  HAL_Delay(150);
+
+  // INTERNAL_STATUS
+  uint8_t init_status = bmi270_read_reg(0x21) & 0xF;
+  if (init_status == 0x1) {
+    swv_printf("BMI270 init ok\n");
+  } else {
+    swv_printf("BMI270 init status 0x%02x\n", (int)init_status);
+  }
+
+  // Normal mode
+  bmi270_write_reg(0x7D, 0b0110); // PWR_CTRL.gyr_en = 1, .acc_en = 1
+  bmi270_write_reg(0x40, 0xA8);   // ACC_CONF
+  bmi270_write_reg(0x41, 0x01);   // ACC_RANGE: +/-4g
+  bmi270_write_reg(0x42, 0xA9);   // GYR_CONF
+  bmi270_write_reg(0x43, 0x00);   // GYR_RANGE: +/-2000dps
+  HAL_Delay(10);
+
+  bmi270_write_reg(0x6B, 0x21);   // IF_CONF.aux_en = 1
+  bmi270_write_reg(0x7D, 0b0110); // PWR_CTRL.aux_en = 0
+  bmi270_write_reg(0x4B, 0x30 << 1);  // AUX_DEV_ID
+  bmi270_write_reg(0x4C, 0b10001111);
+    // AUX_IF_CONF
+    //   .aux_rd_burst = 0x3 (length 8)
+    //   .man_rd_burst = 0x3 (length 8)
+    //   .aux_manual_en = 1
+  // Write to ODR (0x1A), value 100
+  bmi270_write_reg(0x4F, 100);
+  bmi270_write_reg(0x4E, 0x1A);
+  HAL_Delay(1);
+  // Write to Internal Control 0 (0x1B), value 0xA1 (Cmm_freq_en, Auto_SR_en, Take_meas_M)
+  bmi270_write_reg(0x4F, 0xA1);
+  bmi270_write_reg(0x4E, 0x1B);
+  HAL_Delay(1);
+  // Write to Internal Control 2 (0x1D), value 0x10 (Cmm_en)
+  bmi270_write_reg(0x4F, 0x10);
+  bmi270_write_reg(0x4E, 0x1D);
+  HAL_Delay(1);
+
+  bmi270_write_reg(0x68, 0x02);   // AUX_IF_TRIM (10 kΩ)
+  bmi270_write_reg(0x7D, 0b0111); // PWR_CTRL.aux_en = 1
+  bmi270_write_reg(0x4D, 0x00);   // AUX_RD_ADDR
+  bmi270_write_reg(0x4C, 0b00001111); // AUX_IF_CONF.aux_manual_en = 0
+  HAL_Delay(10);
+
+  uint8_t data[24];
+  for (int i = 0; i < 10; i++) {
+    bmi270_read_burst(0x04, data, 23);
+    for (int i = 0; i < 23; i++) swv_printf("%02x%c", (int)data[i], i == 22 ? '\n' : ' ');
+  }
+
+  // Ambient light sensors
 
   read_SDA = _read_SDA;
   write_SDA = _write_SDA;
