@@ -232,15 +232,22 @@ static void (*write_SDA)();
 static bool (*is_SDA_all_set)();
 
 static uint32_t _read_SDA() {
-  return (GPIOB->IDR >> 2) & 1;
+  return
+    ((GPIOA->IDR >> 0) & 1) <<  5 |
+    ((GPIOB->IDR >> 2) & 1) << 11;
 }
 static void _write_SDA(uint32_t value) {
+  uint32_t mask_a = 1 << 0;
+  GPIOA->ODR = (GPIOA->ODR & ~mask_a) | (value >> 5);
   uint32_t mask_b = 1 << 2;
-  GPIOB->ODR = (GPIOB->ODR & ~mask_b) | (value << 2);
+  GPIOB->ODR = (GPIOB->ODR & ~mask_b) | (value >> 9);
 }
 static bool _is_SDA_all_set() {
+  uint32_t mask_a = 1 << 0;
   uint32_t mask_b = 1 << 2;
-  return (GPIOB->IDR & mask_b) == mask_b;
+  return
+    (GPIOA->IDR & mask_a) == mask_a &&
+    (GPIOB->IDR & mask_b) == mask_b;
 }
 
 // 0 - no error
@@ -316,10 +323,12 @@ static void i2c_stop_cond(void)
 }
 
 // Write a bit to I2C bus
-static void i2c_write_bit(uint8_t *a)
+static void i2c_write_bit(const uint8_t *a, int bit)
 {
-  uint32_t bitset = (a[0] >> 7) & 1;
-  a[0] <<= 1;
+  uint32_t bitset =
+    (((a[ 5] >> bit) & 1) <<  5) |
+    (((a[11] >> bit) & 1) << 11) |
+    0;
 
   write_SDA(bitset);
 
@@ -366,10 +375,11 @@ static void i2c_read_bit(uint8_t *a)
   wait_SCL_rise(__LINE__);
 
   i2c_delay();
-  uint32_t bit = read_SDA();
+  uint32_t bitset = read_SDA();
   clear_SCL();
 
-  a[0] = (a[0] << 1) | bit;
+  a[ 5] = (a[ 5] << 1) | ((bitset >>  5) & 1);
+  a[11] = (a[11] << 1) | ((bitset >> 11) & 1);
 }
 
 static bool i2c_read_nack()
@@ -387,11 +397,11 @@ static bool i2c_read_nack()
 }
 
 // Write a byte to I2C bus. Return 0 if ACK'ed by the target.
-static bool i2c_write_byte(bool send_start, bool send_stop, unsigned char byte)
+static bool i2c_write_byte(bool send_start, bool send_stop, const uint8_t *byte)
 {
   if (send_start) i2c_start_cond();
   for (int bit = 0; bit < 8; ++bit)
-    i2c_write_bit(&byte);
+    i2c_write_bit(byte, 7 - bit);
   bool nack = i2c_read_nack();
   if (send_stop) i2c_stop_cond();
   if (nack) i2c_mark_err(__LINE__, 1);
@@ -399,29 +409,30 @@ static bool i2c_write_byte(bool send_start, bool send_stop, unsigned char byte)
 }
 
 // Read a byte from I2C bus
-static uint8_t i2c_read_byte(bool nack, bool send_stop)
+static void i2c_read_byte(bool nack, bool send_stop, uint8_t *byte)
 {
-  uint8_t byte[4] = { 0 };
   for (int bit = 0; bit < 8; ++bit) i2c_read_bit(byte);
   i2c_write_nack(nack);
   if (send_stop) i2c_stop_cond();
-  return byte[0];
 }
 
 static void i2c_write(uint8_t addr, const uint8_t *data, size_t size)
 {
-  i2c_write_byte(true, false, addr);
+  uint8_t addrs[12]; for (int i = 0; i < 12; i++) addrs[i] = (i == 5 || i == 11 ? (addr) : 0);
+  i2c_write_byte(true, false, addrs);
   for (size_t i = 0; i < size; i++)
-    i2c_write_byte(false, (i == size - 1), data[i]);
+    i2c_write_byte(false, (i == size - 1), data + 12 * i);
 }
 
 static void i2c_read(uint8_t addr, uint8_t *buf, size_t size)
 {
-  i2c_write_byte(true, false, addr | 1);
+  uint8_t addrs[12]; for (int i = 0; i < 12; i++) addrs[i] = (i == 5 || i == 11 ? (addr | 1) : 0);
+  i2c_write_byte(true, false, addrs);
   for (size_t i = 0; i < size; i++)
-    buf[i] = i2c_read_byte(i == size - 1, i == size - 1);
+    i2c_read_byte(i == size - 1, i == size - 1, buf + 12 * i);
 }
 
+/*
 static void i2c_write_reg_byte(uint8_t addr, uint8_t reg, uint8_t data)
 {
   i2c_write_byte(true, false, addr);
@@ -437,19 +448,24 @@ static void i2c_read_reg(uint8_t addr, uint8_t reg, size_t size, uint8_t *buf)
   for (size_t i = 0; i < size; i++)
     buf[i] = i2c_read_byte(i == size - 1, i == size - 1);
 }
+*/
 #pragma GCC pop_options
 // End of I2C
 
-static inline uint16_t bh1750fvi_readout(uint8_t addr)
+static inline void bh1750fvi_readout(uint8_t addr, uint16_t results[12])
 {
   // One Time H-Resolution Mode
-  uint8_t op = 0x20; i2c_write(addr, &op, 1);
+  uint8_t op[12];
+  for (int i = 0; i < 12; i++) op[i] = (i == 5 || i == 11 ? 0x20 : 0);
+  i2c_write(addr, op, 1);
   HAL_Delay(200);
-  uint8_t result[2];
+  uint8_t result[24];
   i2c_read(addr, result, 2);
-  uint16_t lx = ((uint16_t)result[0] << 8) | result[1];
-  lx = (lx * 5 + 3) / 6;
-  return lx;
+  for (int i = 0; i < 12; i++) {
+    uint16_t lx = ((uint16_t)result[i] << 8) | result[i + 12];
+    lx = (lx * 5 + 3) / 6;
+    results[i] = lx;
+  }
 }
 
 int main()
@@ -509,8 +525,9 @@ int main()
   is_SDA_all_set = _is_SDA_all_set;
   i2c_init();
 
-  uint32_t lx = bh1750fvi_readout(0b0100011 << 1);
-  swv_printf("%u lx, I2C err = %u\n", lx, i2c_err);
+  uint16_t lx[12];
+  bh1750fvi_readout(0b0100011 << 1, lx);
+  swv_printf("%u lx, I2C err = %u\n", lx[5], i2c_err);
 
   // Buttons
   HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
@@ -583,9 +600,9 @@ int main()
     lcd_addr(105, 105, 134, 134);
     lcd_data_bulk(p, 30 * 30 * 2);
 
-    uint32_t lx = bh1750fvi_readout(0b0100011 << 1);
+    bh1750fvi_readout(0b0100011 << 1, lx);
     char s[64];
-    snprintf(s, sizeof s, "%u lx\nI2C err = %u\nline = %d", lx, i2c_err, i2c_first_err_line);
+    snprintf(s, sizeof s, "%5u %5u lx\nI2C err = %u\nline = %d", lx[5], lx[11], i2c_err, i2c_first_err_line);
     lcd_print_str(s, 70, 50);
 
     // Output to LEDs
