@@ -234,18 +234,18 @@ static void (*write_SDA)();
 
 static uint32_t _read_SDA() {
   return
-    // (((GPIOA->IDR >> 0) & 1) <<  5) |
-    // (((GPIOA->IDR >> 1) & 1) <<  6) |
-    // (((GPIOB->IDR >> 2) & 1) << 11) |
+    (((GPIOA->IDR >> 0) & 1) <<  5) |
+    (((GPIOA->IDR >> 1) & 1) <<  6) |
     (((GPIOA->IDR >> 2) & 1) <<  7) |
     (((GPIOA->IDR >> 3) & 1) <<  8) |
-    (0xffffffff ^ (1 << 7) ^ (1 << 8));
+    // (((GPIOB->IDR >> 2) & 1) << 11) |
+    (0xffffffff ^ (1 << 5) ^ (1 << 6) ^ (1 << 7) ^ (1 << 8));
 }
 static void _write_SDA(uint32_t value) {
-  uint32_t mask_a = (1 << 2) | (1 << 3);
+  uint32_t mask_a = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3);
   GPIOA->ODR = (GPIOA->ODR & ~mask_a)
-    // | (((value >>  5) & 1) << 0)
-    // | (((value >>  6) & 1) << 1)
+    | (((value >>  5) & 1) << 0)
+    | (((value >>  6) & 1) << 1)
     | (((value >>  7) & 1) << 2)
     | (((value >>  8) & 1) << 3)
     ;
@@ -593,8 +593,11 @@ int main()
   // insufficient for the boosted 5 V voltage to decay)
   led_flush();
 
-  uint32_t led_data[5] = {0x0, 0xe1ff0000, 0xe1ff0000, 0xe1ff0000, 0xffffffff};
-  led_write(led_data, 5);
+  uint32_t led_data[10] = {0x0,
+    0xe1ff0000, 0xe1ff0000, 0xe1ff0000, 0xe1ff0000,
+    0xe100ff00, 0xe10000ff, 0xe1c0c000, 0xe100c0c0,
+    0xffffffff};
+  led_write(led_data, 10);
 
   // I2Cx
   const uint32_t i2cx_gpioa_pins =
@@ -614,7 +617,7 @@ int main()
     led_data[1] = (GPIOA->ODR & (1 << 1)) ? 0xe100c0c0 : 0xe1ff0000;
     led_data[2] = read_scl ? 0xe100c0c0 : 0xe1ff0000;
     led_data[3] = read_sda ? 0xe100c0c0 : 0xe1ff0000;
-    led_write(led_data, 5);
+    led_write(led_data, 10);
     HAL_Delay(1000);
     swv_printf("%d %08x\n", GPIOA->ODR & (1 << 1), GPIOA->IDR);
     if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
@@ -633,7 +636,6 @@ int main()
   });
   GPIOB->BSRR = i2cx_gpiob_pins;
 
-if (0) {
   read_SDA = _read_SDA_06;
   write_SDA = _write_SDA_06;
   i2c_init();
@@ -708,9 +710,8 @@ if (0) {
     bmi270_read_burst(0x04, data, 23);
     for (int i = 0; i < 23; i++) swv_printf("%02x%c", (int)data[i], i == 22 ? '\n' : ' ');
   }
-}
-  for (int i = 1; i < 4; i++) led_data[i] = 0xe10000ff;
-  led_write(led_data, 5);
+  for (int i = 1; i < 9; i++) led_data[i] = 0xe10000ff;
+  led_write(led_data, 10);
 
   // Ambient light sensors
 
@@ -786,13 +787,13 @@ if (0) {
     uint8_t addr = (count & 1) ? 0b0100011 : 0b1011100;
     bh1750fvi_readout(addr << 1, lx);
     char s[64];
-    snprintf(s, sizeof s, "addr %02x | %5u %5u lx\nI2C err = %u\nline = %d", addr, lx[7], lx[8], i2c_err, i2c_first_err_line);
+    snprintf(s, sizeof s, "addr %02x | %5u %5u %5u %5u lx\nI2C err = %u\nline = %d", addr, lx[5], lx[6], lx[7], lx[8], i2c_err, i2c_first_err_line);
     lcd_print_str(s, 70, 50);
     swv_printf("%s\n", s);
 
     // Output to LEDs
-    uint32_t led_data[5] = {0x0, 0xe1ff0000, 0xe100ff00, 0xe10000ff, 0xffffffff};
-    led_write(led_data, 5);
+    uint32_t led_data[4] = {0x0, 0xe1ff0000, 0xe100ff00, 0xe10000ff};
+    led_write(led_data, 4);
 
     HAL_Delay(100);
     if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
