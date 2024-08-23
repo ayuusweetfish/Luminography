@@ -235,15 +235,15 @@ static void (*write_SDA)();
 static uint32_t _read_SDA() {
   return
     (((GPIOA->IDR >> 0) & 1) <<  5) |
-    // (((GPIOA->IDR >> 1) & 1) <<  6) |
+    (((GPIOA->IDR >> 1) & 1) <<  6) |
     (((GPIOB->IDR >> 2) & 1) << 11) |
-    0xfffff7df;
+    0xfffff79f;
 }
 static void _write_SDA(uint32_t value) {
-  uint32_t mask_a = (1 << 0) /* | (1 << 1) */;
+  uint32_t mask_a = (1 << 0) | (1 << 1);
   GPIOA->ODR = (GPIOA->ODR & ~mask_a)
     | (((value >>  5) & 1) << 0)
-    // | (((value >>  6) & 1) << 1)
+    | (((value >>  6) & 1) << 1)
     ;
   uint32_t mask_b = 1 << 2;
   GPIOB->ODR = (GPIOB->ODR & ~mask_b) | (((value >> 11) & 1) << 2);
@@ -781,6 +781,7 @@ int main()
     char s[64];
     snprintf(s, sizeof s, "%5u %5u %5u lx\nI2C err = %u\nline = %d", lx[5], lx[6], lx[11], i2c_err, i2c_first_err_line);
     lcd_print_str(s, 70, 50);
+    swv_printf("%s\n", s);
 
     // Output to LEDs
     uint32_t led_data[5] = {0x0, 0xe1ff0000, 0xe100ff00, 0xe10000ff, 0xffffffff};
