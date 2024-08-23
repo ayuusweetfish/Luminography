@@ -560,6 +560,16 @@ int main()
   });
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 1);
 
+  // Buttons
+  HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
+    .Pin = GPIO_PIN_6,
+    .Mode = GPIO_MODE_INPUT,
+  });
+  HAL_GPIO_Init(GPIOC, &(GPIO_InitTypeDef){
+    .Pin = GPIO_PIN_13,
+    .Mode = GPIO_MODE_INPUT,
+  });
+
   // LSH_OE (PA4), LED_CLK (PA7), LED_DATA (PA5)
   HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
     .Pin = GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_7,
@@ -572,6 +582,9 @@ int main()
   // insufficient for the boosted 5 V voltage to decay)
   led_flush();
 
+  uint32_t led_data[5] = {0x0, 0xe1ff0000, 0xe1ff0000, 0xe1ff0000, 0xffffffff};
+  led_write(led_data, 5);
+
   // I2Cx
   const uint32_t i2cx_gpioa_pins =
     GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_10;
@@ -581,6 +594,23 @@ int main()
     .Pull = GPIO_PULLUP,
   });
   GPIOA->BSRR = i2cx_gpioa_pins;  // Set to release signal lines
+
+  while (0) {
+    GPIOA->ODR ^= (1 << 1);
+    uint32_t read_scl = GPIOA->IDR & (1 << 1);
+    uint32_t read_sda = GPIOA->IDR & (1 << 10);
+    i2c_delay();
+    led_data[1] = (GPIOA->ODR & (1 << 1)) ? 0xe100c0c0 : 0xe1ff0000;
+    led_data[2] = read_scl ? 0xe100c0c0 : 0xe1ff0000;
+    led_data[3] = read_sda ? 0xe100c0c0 : 0xe1ff0000;
+    led_write(led_data, 5);
+    HAL_Delay(1000);
+    swv_printf("%d %08x\n", GPIOA->ODR & (1 << 1), GPIOA->IDR);
+    if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
+      led_flush();
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0); // PWR_LATCH
+    }
+  }
 
   const uint32_t i2cx_gpiob_pins =
     GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 |
@@ -657,6 +687,8 @@ int main()
     bmi270_read_burst(0x04, data, 23);
     for (int i = 0; i < 23; i++) swv_printf("%02x%c", (int)data[i], i == 22 ? '\n' : ' ');
   }
+  for (int i = 1; i < 4; i++) led_data[i] = 0xe10000ff;
+  led_write(led_data, 5);
 
   // Ambient light sensors
 
@@ -667,16 +699,6 @@ int main()
   uint16_t lx[12];
   bh1750fvi_readout(0b0100011 << 1, lx);
   swv_printf("%u lx, I2C err = %u\n", lx[5], i2c_err);
-
-  // Buttons
-  HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
-    .Pin = GPIO_PIN_6,
-    .Mode = GPIO_MODE_INPUT,
-  });
-  HAL_GPIO_Init(GPIOC, &(GPIO_InitTypeDef){
-    .Pin = GPIO_PIN_13,
-    .Mode = GPIO_MODE_INPUT,
-  });
 
   // LCD_RSTN (PB6), LCD_BL (PB4), LCD_DC (PB5), LCD_CS (PB9)
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
