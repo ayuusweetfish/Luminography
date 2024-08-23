@@ -489,6 +489,13 @@ static inline void bh1750fvi_readout(uint8_t addr, uint16_t results[12])
   }
 }
 
+static inline uint16_t max17049_read_reg(uint8_t reg)
+{
+  uint8_t value[2];
+  i2c_read_reg(0b01101100, reg, 2, value);
+  return ((uint16_t)value[0] << 8) | value[1];
+}
+
 static inline uint8_t bmi270_read_reg(uint8_t reg)
 {
   uint8_t value;
@@ -621,6 +628,15 @@ int main()
     .Pull = GPIO_PULLUP,
   });
   GPIOB->BSRR = i2cx_gpiob_pins;
+
+  read_SDA = _read_SDA_06;
+  write_SDA = _write_SDA_06;
+  i2c_init();
+
+  HAL_Delay(1200);
+  uint32_t vcell = max17049_read_reg(0x02);
+  uint32_t soc = max17049_read_reg(0x04);
+  swv_printf("VCELL = %u, SOC = %u %u\n", vcell, soc / 256, soc % 256);
 
   read_SDA = _read_SDA_04;
   write_SDA = _write_SDA_04;
