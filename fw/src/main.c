@@ -422,7 +422,10 @@ static bool i2c_read_nack()
   wait_SCL_rise(__LINE__);
 
   i2c_delay();
-  bool bit = (read_SDA() == 0xffffffff);
+  uint32_t sda = read_SDA();
+  bool bit = (sda == 0xffffffff);
+  // Debug use
+  if (!bit && read_SDA == _read_SDA && sda != 0xfffffe1f) swv_printf("ACK %08x\n", read_SDA());
   clear_SCL();
   return bit;
 }
@@ -446,7 +449,8 @@ static bool i2c_write_byte_all(bool send_start, bool send_stop, uint8_t byte)
     i2c_write_bit_all((byte >> (7 - bit)) & 1);
   bool nack = i2c_read_nack();
   if (send_stop) i2c_stop_cond();
-  if (nack) i2c_mark_err(__LINE__, 1);
+  if (nack)
+    i2c_mark_err(__LINE__, 1);
   return nack;
 }
 
@@ -657,23 +661,6 @@ int main()
   });
   GPIOA->BSRR = i2cx_gpioa_pins;  // Set to release signal lines
 
-  while (0) {
-    GPIOA->ODR ^= (1 << 1);
-    uint32_t read_scl = GPIOA->IDR & (1 << 1);
-    uint32_t read_sda = GPIOA->IDR & (1 << 10);
-    i2c_delay();
-    led_data[0] = (GPIOA->ODR & (1 << 1)) ? 0xe100c0c0 : 0xe1ff0000;
-    led_data[1] = read_scl ? 0xe100c0c0 : 0xe1ff0000;
-    led_data[2] = read_sda ? 0xe100c0c0 : 0xe1ff0000;
-    led_write(led_data, 8);
-    HAL_Delay(1000);
-    swv_printf("%d %08x\n", GPIOA->ODR & (1 << 1), GPIOA->IDR);
-    if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
-      led_flush();
-      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0); // PWR_LATCH
-    }
-  }
-
   const uint32_t i2cx_gpiob_pins =
     GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 |
     GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14;
@@ -699,11 +686,15 @@ if (0) {
   write_SDA = _write_SDA_04;
   i2c_init();
 
-  uint8_t chip_id = bmi270_read_reg(0x00);
-  swv_printf("BMI270 chip ID = 0x%02x, I2C err = %u, line = %d\n",
-    (int)chip_id, i2c_err, i2c_first_err_line); // Should read 0x24
-
   while (1) {
+    uint8_t chip_id = bmi270_read_reg(0x00);
+    swv_printf("BMI270 chip ID = 0x%02x, I2C err = %u, line = %d\n",
+      (int)chip_id, i2c_err, i2c_first_err_line);
+    if (chip_id != 0x24) {
+      HAL_Delay(100);
+      continue;
+    }
+
     bmi270_write_reg(0x7E, 0xB6); // Soft reset
     HAL_Delay(1);
 
@@ -768,9 +759,15 @@ if (0) {
   write_SDA = _write_SDA;
   i2c_init();
 
-  uint16_t lx[12];
-  bh1750fvi_readout(0b0100011 << 1, lx);
-  swv_printf("%u lx, I2C err = %u\n", lx[7], i2c_err);
+  for (int addr_pin = 0; addr_pin <= 1; addr_pin++) {
+    uint8_t addr = addr_pin ? 0b0100011 : 0b1011100;
+    uint16_t lx[12];
+    i2c_err = 0; i2c_first_err_line = -1;
+    bh1750fvi_readout(addr << 1, lx);
+    char s[64];
+    snprintf(s, sizeof s, "addr %02x | %5u %5u %5u %5u lx | I2C err = %u line = %d", addr, lx[5], lx[6], lx[7], lx[8], i2c_err, i2c_first_err_line);
+    swv_printf("%s\n", s);
+  }
 
   // LCD_RSTN (PB6), LCD_BL (PB4), LCD_DC (PB5), LCD_CS (PB9)
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
@@ -818,7 +815,6 @@ if (0) {
 
   while (1) {
     static int count = 0;
-    swv_printf("hello\n");
     // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, (++count) & 1);
 
     count++;
@@ -833,18 +829,6 @@ if (0) {
     }
     lcd_addr(105, 105, 134, 134);
     lcd_data_bulk(p, 30 * 30 * 2);
-  }
-
-  if (0) {
-    read_SDA = _read_SDA;
-    write_SDA = _write_SDA;
-
-    uint8_t addr = (count & 1) ? 0b0100011 : 0b1011100;
-    bh1750fvi_readout(addr << 1, lx);
-    char s[64];
-    snprintf(s, sizeof s, "addr %02x | %5u %5u %5u %5u lx\nI2C err = %u\nline = %d", addr, lx[5], lx[6], lx[7], lx[8], i2c_err, i2c_first_err_line);
-    lcd_print_str(s, 70, 50);
-    swv_printf("%s\n", s);
   }
 
     read_SDA = _read_SDA_04;
