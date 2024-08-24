@@ -449,8 +449,7 @@ static bool i2c_write_byte_all(bool send_start, bool send_stop, uint8_t byte)
     i2c_write_bit_all((byte >> (7 - bit)) & 1);
   bool nack = i2c_read_nack();
   if (send_stop) i2c_stop_cond();
-  if (nack)
-    i2c_mark_err(__LINE__, 1);
+  if (nack) i2c_mark_err(__LINE__, 1);
   return nack;
 }
 
@@ -671,17 +670,6 @@ int main()
   });
   GPIOB->BSRR = i2cx_gpiob_pins;
 
-if (0) {
-  read_SDA = _read_SDA_06;
-  write_SDA = _write_SDA_06;
-  i2c_init();
-
-  HAL_Delay(2000);
-  uint32_t vcell = max17049_read_reg(0x02);
-  uint32_t soc = max17049_read_reg(0x04);
-  swv_printf("VCELL = %u, SOC = %u %u\n", vcell, soc / 256, soc % 256);
-}
-
   read_SDA = _read_SDA_04;
   write_SDA = _write_SDA_04;
   i2c_init();
@@ -816,6 +804,17 @@ if (0) {
   while (1) {
     static int count = 0;
     // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, (++count) & 1);
+
+    if (HAL_GetTick() >= 2000 && count % 25 == 0) {
+      read_SDA = _read_SDA_06;
+      write_SDA = _write_SDA_06;
+      i2c_init();
+
+      uint32_t vcell = max17049_read_reg(0x02);
+      uint32_t soc = max17049_read_reg(0x04);
+      swv_printf("VCELL = %u, SOC = %u %u\n", vcell, soc / 256, soc % 256);
+    }
+
 
     count++;
   if (0) {
