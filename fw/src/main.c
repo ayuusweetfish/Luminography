@@ -1,4 +1,5 @@
 #include <stm32g0xx_hal.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -68,6 +69,14 @@ static inline void led_write(const uint32_t *data, size_t n)
 {
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, 1);
   __disable_irq();
+
+  // Clear zero
+  for (int j = 0; j < 32; j++) {
+    GPIOA->BSRR = (1 << (7 + 16)) | (1 << (5 + 16));
+    asm volatile ("nop");
+    GPIOA->BSRR = 1 << 7;
+  }
+
   for (int i = 0; i < n; i++)
     #pragma GCC unroll 32
     for (int j = 0; j < 32; j++) {
@@ -77,6 +86,14 @@ static inline void led_write(const uint32_t *data, size_t n)
       asm volatile ("nop");
       GPIOA->BSRR = 1 << 7;
     }
+
+  // Clear one
+  for (int j = 0; j < 32; j++) {
+    GPIOA->BSRR = (1 << (7 + 16)) | (1 << 5);
+    asm volatile ("nop");
+    GPIOA->BSRR = 1 << 7;
+  }
+
   __enable_irq();
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, 0);
 }
@@ -84,11 +101,9 @@ static inline void led_write(const uint32_t *data, size_t n)
 
 static inline void led_flush()
 {
-  uint32_t data[26];
-  data[0] = 0x0;
-  for (int i = 1; i < 25; i++) data[i] = 0xe0000000;
-  data[25] = 0xffffffff;
-  led_write(data, 26);
+  uint32_t data[24];
+  for (int i = 0; i < 24; i++) data[i] = 0xe0000000;
+  led_write(data, 24);
 }
 
 #include "lcd.h"
@@ -553,15 +568,15 @@ static inline void bmi270_read(int16_t mag_out[3], int16_t acc_out[3], int16_t g
   bmi270_read_burst(0x04, data, 23);
   // for (int i = 0; i < 23; i++) swv_printf("%02x%c", (int)data[i], i == 22 ? '\n' : ' ');
   // Assumes little endian
-  mag_out[0] = satneg16(((int16_t)((uint16_t)data[0] << 8) | data[1]) + 0x8000);
+  mag_out[0] =         (((int16_t)((uint16_t)data[0] << 8) | data[1]) + 0x8000);
   mag_out[1] = satneg16(((int16_t)((uint16_t)data[2] << 8) | data[3]) + 0x8000);
-  mag_out[2] =         (((int16_t)((uint16_t)data[4] << 8) | data[5]) + 0x8000);
-  acc_out[1] =          *( int16_t *)(data +  8);
-  acc_out[0] = satneg16(*( int16_t *)(data + 10));
-  acc_out[2] =         (*( int16_t *)(data + 12));
-  gyr_out[1] =          *( int16_t *)(data + 14);
-  gyr_out[0] = satneg16(*( int16_t *)(data + 16));
-  gyr_out[2] =         (*( int16_t *)(data + 18));
+  mag_out[2] = satneg16(((int16_t)((uint16_t)data[4] << 8) | data[5]) + 0x8000);
+  acc_out[1] =         (*( int16_t *)(data +  8));
+  acc_out[0] =         (*( int16_t *)(data + 10));
+  acc_out[2] = satneg16(*( int16_t *)(data + 12));
+  gyr_out[1] =         (*( int16_t *)(data + 14));
+  gyr_out[0] =         (*( int16_t *)(data + 16));
+  gyr_out[2] = satneg16(*( int16_t *)(data + 18));
   data[23] = 0;
   uint32_t time = *(uint32_t *)(data + 20);
   // Gyroscope calibration
@@ -626,11 +641,11 @@ int main()
   // insufficient for the boosted 5 V voltage to decay)
   led_flush();
 
-  uint32_t led_data[10] = {0x0,
+  uint32_t led_data[8] = {
     0xe1ff0000, 0xe1ff0000, 0xe1ff0000, 0xe1ff0000,
     0xe100ff00, 0xe10000ff, 0xe1c0c000, 0xe100c0c0,
-    0xffffffff};
-  led_write(led_data, 10);
+  };
+  led_write(led_data, 8);
 
   // I2Cx
   const uint32_t i2cx_gpioa_pins =
@@ -647,10 +662,10 @@ int main()
     uint32_t read_scl = GPIOA->IDR & (1 << 1);
     uint32_t read_sda = GPIOA->IDR & (1 << 10);
     i2c_delay();
-    led_data[1] = (GPIOA->ODR & (1 << 1)) ? 0xe100c0c0 : 0xe1ff0000;
-    led_data[2] = read_scl ? 0xe100c0c0 : 0xe1ff0000;
-    led_data[3] = read_sda ? 0xe100c0c0 : 0xe1ff0000;
-    led_write(led_data, 10);
+    led_data[0] = (GPIOA->ODR & (1 << 1)) ? 0xe100c0c0 : 0xe1ff0000;
+    led_data[1] = read_scl ? 0xe100c0c0 : 0xe1ff0000;
+    led_data[2] = read_sda ? 0xe100c0c0 : 0xe1ff0000;
+    led_write(led_data, 8);
     HAL_Delay(1000);
     swv_printf("%d %08x\n", GPIOA->ODR & (1 << 1), GPIOA->IDR);
     if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
@@ -744,11 +759,8 @@ if (0) {
   bmi270_write_reg(0x4C, 0b00001111); // AUX_IF_CONF.aux_manual_en = 0
   HAL_Delay(10);
 
-  int16_t mag_out[3], acc_out[3], gyr_out[3];
-  for (int i = 0; i < 10; i++)
-    bmi270_read(mag_out, acc_out, gyr_out);
-  for (int i = 1; i < 9; i++) led_data[i] = 0xe10000ff;
-  led_write(led_data, 10);
+  for (int i = 0; i < 8; i++) led_data[i] = 0xe10000ff;
+  led_write(led_data, 8);
 
   // Ambient light sensors
 
@@ -810,6 +822,7 @@ if (0) {
     // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, (++count) & 1);
 
     count++;
+  if (0) {
     for (int i = 0; i < 30 * 30 * 2; i += 2) {
       p[i + 0] = 0xff;
       p[i + 1] = 0xff - (count << 2);
@@ -820,6 +833,11 @@ if (0) {
     }
     lcd_addr(105, 105, 134, 134);
     lcd_data_bulk(p, 30 * 30 * 2);
+  }
+
+  if (0) {
+    read_SDA = _read_SDA;
+    write_SDA = _write_SDA;
 
     uint8_t addr = (count & 1) ? 0b0100011 : 0b1011100;
     bh1750fvi_readout(addr << 1, lx);
@@ -827,17 +845,33 @@ if (0) {
     snprintf(s, sizeof s, "addr %02x | %5u %5u %5u %5u lx\nI2C err = %u\nline = %d", addr, lx[5], lx[6], lx[7], lx[8], i2c_err, i2c_first_err_line);
     lcd_print_str(s, 70, 50);
     swv_printf("%s\n", s);
+  }
+
+    read_SDA = _read_SDA_04;
+    write_SDA = _write_SDA_04;
+
+    int16_t mag_out[3], acc_out[3], gyr_out[3];
+    bmi270_read(mag_out, acc_out, gyr_out);
+    int16_t m_angle = (int16_t)((atan2f(mag_out[1], mag_out[0]) / M_PI + 1) * 12);
+    if (m_angle < 0) m_angle += 24;
+    if (m_angle >= 24) m_angle -= 24;
+    int16_t a_angle = (int16_t)((atan2f(acc_out[1], acc_out[0]) / M_PI + 1) * 12 + 0.5);
+    a_angle -= 12;
+    if (a_angle < 0) a_angle += 24;
 
     // Output to LEDs
-    uint32_t led_data[10];
-    led_data[0] = 0x0;
-    static const uint32_t tints[3] = {0xe1ff0000, 0xe100ff00, 0xe10000ff};
-    for (int i = 1; i < 9; i++)
+    uint32_t led_data[8];
+    static const uint32_t tints[3] = {0xe1080000, 0xe1000800, 0xe1000008};
+    for (int i = 0; i < 8; i++)
       led_data[i] = tints[(i + count) % 3];
-    led_data[9] = 0xffffffff;
-    led_write(led_data, 10);
+    // Read (g, 0) -> LED D117
+    // Read (0, g) -> LED D110
+    led_data[a_angle % 8] = 0xe100ffff;
+    m_angle = 10 + m_angle % 8;
+    if (m_angle >= 10 && m_angle < 18) led_data[17 - m_angle] = 0xe1ffff00;
+    led_write(led_data, 8);
 
-    HAL_Delay(100);
+    HAL_Delay(50);
     if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
       led_flush();
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0); // PWR_LATCH
