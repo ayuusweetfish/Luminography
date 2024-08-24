@@ -541,6 +541,39 @@ static const uint8_t bmi270_config_file[] = {
   0xf5, 0xeb, 0x2c, 0xe1, 0x6f
 };
 
+static inline int16_t satneg16(int16_t x)
+{
+  if (x == INT16_MIN) return INT16_MAX;
+  return -x;
+}
+
+static inline void bmi270_read(int16_t mag_out[3], int16_t acc_out[3], int16_t gyr_out[3])
+{
+  uint8_t data[24];
+  bmi270_read_burst(0x04, data, 23);
+  // for (int i = 0; i < 23; i++) swv_printf("%02x%c", (int)data[i], i == 22 ? '\n' : ' ');
+  // Assumes little endian
+  mag_out[0] = satneg16(((int16_t)((uint16_t)data[0] << 8) | data[1]) + 0x8000);
+  mag_out[1] = satneg16(((int16_t)((uint16_t)data[2] << 8) | data[3]) + 0x8000);
+  mag_out[2] =         (((int16_t)((uint16_t)data[4] << 8) | data[5]) + 0x8000);
+  acc_out[1] =          *( int16_t *)(data +  8);
+  acc_out[0] = satneg16(*( int16_t *)(data + 10));
+  acc_out[2] =         (*( int16_t *)(data + 12));
+  gyr_out[1] =          *( int16_t *)(data + 14);
+  gyr_out[0] = satneg16(*( int16_t *)(data + 16));
+  gyr_out[2] =         (*( int16_t *)(data + 18));
+  data[23] = 0;
+  uint32_t time = *(uint32_t *)(data + 20);
+  // Gyroscope calibration
+  int8_t gyr_cas = ((int8_t)bmi270_read_reg(0x3C) << 1) >> 1;
+  gyr_out[0] -= ((uint32_t)gyr_cas * gyr_out[2]) >> 9;
+
+  swv_printf("M %6d %6d %6d  A %6d %6d %6d  G %6d %6d %6d\n",
+    mag_out[0], mag_out[1], mag_out[2],
+    acc_out[0], acc_out[1], acc_out[2],
+    gyr_out[0], gyr_out[1], gyr_out[2]);
+}
+
 int main()
 {
   HAL_Init();
@@ -636,14 +669,16 @@ int main()
   });
   GPIOB->BSRR = i2cx_gpiob_pins;
 
+if (0) {
   read_SDA = _read_SDA_06;
   write_SDA = _write_SDA_06;
   i2c_init();
 
-  HAL_Delay(1200);
+  HAL_Delay(2000);
   uint32_t vcell = max17049_read_reg(0x02);
   uint32_t soc = max17049_read_reg(0x04);
   swv_printf("VCELL = %u, SOC = %u %u\n", vcell, soc / 256, soc % 256);
+}
 
   read_SDA = _read_SDA_04;
   write_SDA = _write_SDA_04;
@@ -652,22 +687,26 @@ int main()
   uint8_t chip_id = bmi270_read_reg(0x00);
   swv_printf("BMI270 chip ID = 0x%02x, I2C err = %u, line = %d\n",
     (int)chip_id, i2c_err, i2c_first_err_line); // Should read 0x24
-  bmi270_write_reg(0x7E, 0xB6); // Soft reset
-  HAL_Delay(1);
 
-  bmi270_write_reg(0x7C, 0x00);
-  HAL_Delay(1);
-  bmi270_write_reg(0x59, 0x00);
-  bmi270_write_burst(bmi270_config_file, sizeof bmi270_config_file);
-  bmi270_write_reg(0x59, 0x01);
-  HAL_Delay(150);
+  while (1) {
+    bmi270_write_reg(0x7E, 0xB6); // Soft reset
+    HAL_Delay(1);
 
-  // INTERNAL_STATUS
-  uint8_t init_status = bmi270_read_reg(0x21) & 0xF;
-  if (init_status == 0x1) {
-    swv_printf("BMI270 init ok\n");
-  } else {
-    swv_printf("BMI270 init status 0x%02x\n", (int)init_status);
+    bmi270_write_reg(0x7C, 0x00);
+    HAL_Delay(1);
+    bmi270_write_reg(0x59, 0x00);
+    bmi270_write_burst(bmi270_config_file, sizeof bmi270_config_file);
+    bmi270_write_reg(0x59, 0x01);
+    HAL_Delay(150);
+
+    // INTERNAL_STATUS
+    uint8_t init_status = bmi270_read_reg(0x21) & 0xF;
+    if (init_status == 0x1) {
+      swv_printf("BMI270 init ok\n");
+      break;
+    } else {
+      swv_printf("BMI270 init status 0x%02x\n", (int)init_status);
+    }
   }
 
   // Normal mode
@@ -705,11 +744,9 @@ int main()
   bmi270_write_reg(0x4C, 0b00001111); // AUX_IF_CONF.aux_manual_en = 0
   HAL_Delay(10);
 
-  uint8_t data[24];
-  for (int i = 0; i < 10; i++) {
-    bmi270_read_burst(0x04, data, 23);
-    for (int i = 0; i < 23; i++) swv_printf("%02x%c", (int)data[i], i == 22 ? '\n' : ' ');
-  }
+  int16_t mag_out[3], acc_out[3], gyr_out[3];
+  for (int i = 0; i < 10; i++)
+    bmi270_read(mag_out, acc_out, gyr_out);
   for (int i = 1; i < 9; i++) led_data[i] = 0xe10000ff;
   led_write(led_data, 10);
 
@@ -792,8 +829,13 @@ int main()
     swv_printf("%s\n", s);
 
     // Output to LEDs
-    uint32_t led_data[4] = {0x0, 0xe1ff0000, 0xe100ff00, 0xe10000ff};
-    led_write(led_data, 4);
+    uint32_t led_data[10];
+    led_data[0] = 0x0;
+    static const uint32_t tints[3] = {0xe1ff0000, 0xe100ff00, 0xe10000ff};
+    for (int i = 1; i < 9; i++)
+      led_data[i] = tints[(i + count) % 3];
+    led_data[9] = 0xffffffff;
+    led_write(led_data, 10);
 
     HAL_Delay(100);
     if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {

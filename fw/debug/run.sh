@@ -1,4 +1,4 @@
-# ~/.platformio/packages/tool-openocd/bin/openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c 'adapter speed 32000'
+# ~/.platformio/packages/tool-openocd/bin/openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c 'adapter speed 32000; init; reset init'
 
 # (cd ~/Downloads/stlink; ./build/Release/bin/st-info --probe --connect-under-reset)
 # (cd ~/Downloads/stlink; ./build/Release/bin/st-flash --connect-under-reset write $OLDPWD/.pio/build/dev/firmware.bin 0x8000000)
