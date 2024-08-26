@@ -237,7 +237,7 @@ static void i2c_delay()
 {
   // 10 us = 100 kHz
   // NOTE: Lower frequency might be used with internal weak pull-ups and/or for debugging
-  static const uint32_t us = 100;
+  static const uint32_t us = 20;
   for (int i = 0; i < 64 * us / 4; i++) asm volatile ("nop");
 }
 static bool read_SCL() { return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10); }
@@ -702,7 +702,6 @@ int main()
       HAL_Delay(100);
       continue;
     }
-    break;  // XXX: Debug use
 
     bmi270_write_reg(0x7E, 0xB6); // Soft reset
     HAL_Delay(1);
@@ -768,7 +767,7 @@ int main()
   write_SDA = _write_SDA;
   i2c_init();
 
-while (1)
+  // while (1)
   for (int addr_pin = 0; addr_pin <= 1; addr_pin++) {
     uint8_t addr = (addr_pin == 0) ? 0b0100011 : 0b1011100;
     uint16_t lx[12];
@@ -843,7 +842,6 @@ while (1)
       swv_printf("VCELL = %u, SOC = %u %u\n", vcell, soc / 256, soc % 256);
     }
 
-
     count++;
   if (0) {
     for (int i = 0; i < 30 * 30 * 2; i += 2) {
@@ -871,17 +869,15 @@ while (1)
     if (a_angle < 0) a_angle += 24;
 
     // Output to LEDs
-    uint32_t led_data[16];
+    uint32_t led_data[24];
     static const uint32_t tints[3] = {0xe1080000, 0xe1000800, 0xe1000008};
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 24; i++)
       led_data[i] = tints[(i + count) % 3];
     // Read (g, 0) -> LED D117
     // Read (0, g) -> LED D110
-    led_data[a_angle % 8] = 0xe100ffff;
-    m_angle = 10 + m_angle % 8;
-    if (m_angle >= 10 && m_angle < 18) led_data[17 - m_angle] = 0xe1ffff00;
-    for (int i = 0; i < 8; i++) led_data[i + 8] = led_data[i];
-    led_write(led_data, 16);
+    led_data[a_angle] = 0xe100ffff;
+    led_data[m_angle] = 0xe1ffff00;
+    led_write(led_data, 24);
 
     HAL_Delay(50);
     if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
