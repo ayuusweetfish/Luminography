@@ -258,8 +258,10 @@ static uint32_t _read_SDA() {
     (((GPIOA->IDR >>  1) & 1) <<  6) |
     (((GPIOA->IDR >>  2) & 1) <<  7) |
     (((GPIOA->IDR >>  3) & 1) <<  8) |
+    (((GPIOB->IDR >>  0) & 1) <<  9) |
+    (((GPIOB->IDR >>  1) & 1) << 10) |
     (((GPIOB->IDR >>  2) & 1) << 11) |
-    (0xffffffff ^ (1 << 0) ^ (1 << 1) ^ (1 << 2) ^ (1 << 3) ^ (1 << 4) ^ (1 << 5) ^ (1 << 6) ^ (1 << 7) ^ (1 << 8) ^ (1 << 11));
+    (0xfffff000);
 }
 static void _write_SDA(uint32_t value) {
   uint32_t mask_a = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3);
@@ -269,10 +271,12 @@ static void _write_SDA(uint32_t value) {
     | (((value >>  7) & 1) <<  2)
     | (((value >>  8) & 1) <<  3)
     ;
-  uint32_t mask_b = (1 << 2) | (1 << 10) | (1 << 11) | (1 << 12) | (1 << 13) | (1 << 14);
+  uint32_t mask_b = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 10) | (1 << 11) | (1 << 12) | (1 << 13) | (1 << 14);
   GPIOB->ODR = (GPIOB->ODR & ~mask_b)
-    | (((value >>  0) & 1) <<  2)
-    | (((value >> 10) & 1) << 10)
+    | (((value >>  9) & 1) <<  0)
+    | (((value >> 10) & 1) <<  1)
+    | (((value >> 11) & 1) <<  2)
+    | (((value >>  0) & 1) << 10)
     | (((value >>  1) & 1) << 11)
     | (((value >>  2) & 1) << 12)
     | (((value >>  3) & 1) << 13)
@@ -437,7 +441,7 @@ static bool i2c_read_nack()
   uint32_t sda = read_SDA();
   bool bit = (sda == 0xffffffff);
   // Debug use
-  if (!bit && read_SDA == _read_SDA && sda != (0xffffffff ^ (1 << 0) ^ (1 << 1) ^ (1 << 2) ^ (1 << 3) ^ (1 << 4) ^ (1 << 5) ^ (1 << 6) ^ (1 << 7) ^ (1 << 8) ^ (1 << 11))) swv_printf("ACK %08x\n", read_SDA());
+  if (!bit && read_SDA == _read_SDA && sda != 0xfffff000) swv_printf("ACK %08x\n", read_SDA());
   clear_SCL();
   return bit;
 }
