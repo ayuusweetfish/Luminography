@@ -868,13 +868,20 @@ int main()
     a_angle -= 12;
     if (a_angle < 0) a_angle += 24;
 
+    read_SDA = _read_SDA;
+    write_SDA = _write_SDA;
+    uint16_t lx[24];
+    bh1750fvi_readout(0b0100011 << 1, lx);
+    bh1750fvi_readout(0b1011100 << 1, lx + 12);
+    // swv_printf("> %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u lx\n", lx[0], lx[1], lx[2], lx[3], lx[4], lx[5], lx[6], lx[7], lx[8], lx[9], lx[10], lx[11]);
+    // swv_printf("  %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u lx\n", lx[12], lx[13], lx[14], lx[15], lx[16], lx[17], lx[18], lx[19], lx[20], lx[21], lx[22], lx[23]);
+
     // Output to LEDs
     uint32_t led_data[24];
-    static const uint32_t tints[3] = {0xe1080000, 0xe1000800, 0xe1000008};
-    for (int i = 0; i < 24; i++)
-      led_data[i] = tints[(i + count) % 3];
-    // Read (g, 0) -> LED D117
-    // Read (0, g) -> LED D110
+    for (int i = 0; i < 24; i++) {
+      uint16_t value = lx[(17 - i + 24) % 24];
+      led_data[i] = (value >= 1000 ? 0xe1000410 : 0xe1080000);
+    }
     led_data[a_angle] = 0xe100ffff;
     led_data[m_angle] = 0xe1ffff00;
     led_write(led_data, 24);
