@@ -879,7 +879,9 @@ int main()
     // Output to LEDs
     uint32_t led_data[24];
     for (int i = 0; i < 24; i++) {
-      uint16_t value = lx[(17 - i + 24) % 24];
+      int index = (17 - i + 24) % 24;
+      index = index / 2 + (index % 2) * 12;
+      uint16_t value = lx[index];
       led_data[i] = (value >= 1000 ? 0xe1000410 : 0xe1080000);
     }
     led_data[a_angle] = 0xe100ffff;
