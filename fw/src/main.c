@@ -249,13 +249,15 @@ static void (*write_SDA)();
 
 static uint32_t _read_SDA() {
   return
+    (((GPIOB->IDR >> 11) & 1) <<  1) |
+    (((GPIOB->IDR >> 12) & 1) <<  2) |
     (((GPIOB->IDR >> 13) & 1) <<  3) |
     (((GPIOB->IDR >> 14) & 1) <<  4) |
     (((GPIOA->IDR >>  0) & 1) <<  5) |
     (((GPIOA->IDR >>  1) & 1) <<  6) |
     (((GPIOA->IDR >>  2) & 1) <<  7) |
     (((GPIOA->IDR >>  3) & 1) <<  8) |
-    (0xffffffff ^ (1 << 3) ^ (1 << 4) ^ (1 << 5) ^ (1 << 6) ^ (1 << 7) ^ (1 << 8));
+    (0xffffffff ^ (1 << 1) ^ (1 << 2) ^ (1 << 3) ^ (1 << 4) ^ (1 << 5) ^ (1 << 6) ^ (1 << 7) ^ (1 << 8));
 }
 static void _write_SDA(uint32_t value) {
   uint32_t mask_a = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3);
@@ -265,8 +267,10 @@ static void _write_SDA(uint32_t value) {
     | (((value >>  7) & 1) <<  2)
     | (((value >>  8) & 1) <<  3)
     ;
-  uint32_t mask_b = (1 << 13) | (1 << 14);
+  uint32_t mask_b = (1 << 11) | (1 << 12) | (1 << 13) | (1 << 14);
   GPIOB->ODR = (GPIOB->ODR & ~mask_b)
+    | (((value >>  1) & 1) << 11)
+    | (((value >>  2) & 1) << 12)
     | (((value >>  3) & 1) << 13)
     | (((value >>  4) & 1) << 14)
     ;
@@ -429,7 +433,7 @@ static bool i2c_read_nack()
   uint32_t sda = read_SDA();
   bool bit = (sda == 0xffffffff);
   // Debug use
-  if (!bit && read_SDA == _read_SDA && sda != (0xffffffff ^ (1 << 3) ^ (1 << 4) ^ (1 << 5) ^ (1 << 6) ^ (1 << 7) ^ (1 << 8))) swv_printf("ACK %08x\n", read_SDA());
+  if (!bit && read_SDA == _read_SDA && sda != (0xffffffff ^ (1 << 1) ^ (1 << 2) ^ (1 << 3) ^ (1 << 4) ^ (1 << 5) ^ (1 << 6) ^ (1 << 7) ^ (1 << 8))) swv_printf("ACK %08x\n", read_SDA());
   clear_SCL();
   return bit;
 }
@@ -653,7 +657,7 @@ int main()
     0xe100ff00, 0xe10000ff, 0xe1c0c000, 0xe100c0c0,
     0xe100ff00, 0xe10000ff, 0xe1c0c000, 0xe100c0c0,
   };
-  led_write(led_data, 16);
+  led_write(led_data, 12);
 
   // I2Cx
   const uint32_t i2cx_gpioa_pins =
@@ -759,11 +763,15 @@ while (1)
     uint16_t lx[12];
     i2c_err = 0; i2c_first_err_line = -1;
     bh1750fvi_readout(addr << 1, lx);
-    char s[64];
-    snprintf(s, sizeof s, "addr %02x | %5u %5u %5u %5u lx | I2C err = %u line = %d", addr, lx[5], lx[6], lx[7], lx[8], i2c_err, i2c_first_err_line);
+    static char s[128];
+    snprintf(s, sizeof s, "addr %02x | %5u %5u %5u %5u %5u %5u %5u %5u lx | I2C err = %u line = %d", addr, lx[1], lx[2], lx[3], lx[4], lx[5], lx[6], lx[7], lx[8], i2c_err, i2c_first_err_line);
     swv_printf("%s\n", s);
     for (int i = 0; i < 16; i++) led_data[i] = (addr_pin == 0 ? 0xe100ff00 : 0xe1ff0000);
     led_write(led_data, 16);
+    if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
+      led_flush();
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0); // PWR_LATCH
+    }
   }
 
   // LCD_RSTN (PB6), LCD_BL (PB4), LCD_DC (PB5), LCD_CS (PB9)
