@@ -249,23 +249,27 @@ static void (*write_SDA)();
 
 static uint32_t _read_SDA() {
   return
-    (((GPIOA->IDR >> 0) & 1) <<  5) |
-    (((GPIOA->IDR >> 1) & 1) <<  6) |
-    (((GPIOA->IDR >> 2) & 1) <<  7) |
-    (((GPIOA->IDR >> 3) & 1) <<  8) |
-    // (((GPIOB->IDR >> 2) & 1) << 11) |
-    (0xffffffff ^ (1 << 5) ^ (1 << 6) ^ (1 << 7) ^ (1 << 8));
+    (((GPIOB->IDR >> 13) & 1) <<  3) |
+    (((GPIOB->IDR >> 14) & 1) <<  4) |
+    (((GPIOA->IDR >>  0) & 1) <<  5) |
+    (((GPIOA->IDR >>  1) & 1) <<  6) |
+    (((GPIOA->IDR >>  2) & 1) <<  7) |
+    (((GPIOA->IDR >>  3) & 1) <<  8) |
+    (0xffffffff ^ (1 << 3) ^ (1 << 4) ^ (1 << 5) ^ (1 << 6) ^ (1 << 7) ^ (1 << 8));
 }
 static void _write_SDA(uint32_t value) {
   uint32_t mask_a = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3);
   GPIOA->ODR = (GPIOA->ODR & ~mask_a)
-    | (((value >>  5) & 1) << 0)
-    | (((value >>  6) & 1) << 1)
-    | (((value >>  7) & 1) << 2)
-    | (((value >>  8) & 1) << 3)
+    | (((value >>  5) & 1) <<  0)
+    | (((value >>  6) & 1) <<  1)
+    | (((value >>  7) & 1) <<  2)
+    | (((value >>  8) & 1) <<  3)
     ;
-  // uint32_t mask_b = 1 << 2;
-  // GPIOB->ODR = (GPIOB->ODR & ~mask_b) | (((value >> 11) & 1) << 2);
+  uint32_t mask_b = (1 << 13) | (1 << 14);
+  GPIOB->ODR = (GPIOB->ODR & ~mask_b)
+    | (((value >>  3) & 1) << 13)
+    | (((value >>  4) & 1) << 14)
+    ;
 }
 
 static uint32_t _read_SDA_04() {
@@ -425,7 +429,7 @@ static bool i2c_read_nack()
   uint32_t sda = read_SDA();
   bool bit = (sda == 0xffffffff);
   // Debug use
-  if (!bit && read_SDA == _read_SDA && sda != 0xfffffe1f) swv_printf("ACK %08x\n", read_SDA());
+  if (!bit && read_SDA == _read_SDA && sda != (0xffffffff ^ (1 << 3) ^ (1 << 4) ^ (1 << 5) ^ (1 << 6) ^ (1 << 7) ^ (1 << 8))) swv_printf("ACK %08x\n", read_SDA());
   clear_SCL();
   return bit;
 }
@@ -644,11 +648,12 @@ int main()
   // insufficient for the boosted 5 V voltage to decay)
   led_flush();
 
-  uint32_t led_data[8] = {
+  uint32_t led_data[16] = {
     0xe1ff0000, 0xe1ff0000, 0xe1ff0000, 0xe1ff0000,
     0xe100ff00, 0xe10000ff, 0xe1c0c000, 0xe100c0c0,
+    0xe100ff00, 0xe10000ff, 0xe1c0c000, 0xe100c0c0,
   };
-  led_write(led_data, 8);
+  led_write(led_data, 16);
 
   // I2Cx
   const uint32_t i2cx_gpioa_pins =
@@ -682,6 +687,7 @@ int main()
       HAL_Delay(100);
       continue;
     }
+    break;  // XXX: Debug use
 
     bmi270_write_reg(0x7E, 0xB6); // Soft reset
     HAL_Delay(1);
@@ -738,8 +744,8 @@ int main()
   bmi270_write_reg(0x4C, 0b00001111); // AUX_IF_CONF.aux_manual_en = 0
   HAL_Delay(10);
 
-  for (int i = 0; i < 8; i++) led_data[i] = 0xe10000ff;
-  led_write(led_data, 8);
+  for (int i = 0; i < 16; i++) led_data[i] = 0xe10000ff;
+  led_write(led_data, 16);
 
   // Ambient light sensors
 
@@ -747,14 +753,17 @@ int main()
   write_SDA = _write_SDA;
   i2c_init();
 
+while (1)
   for (int addr_pin = 0; addr_pin <= 1; addr_pin++) {
-    uint8_t addr = addr_pin ? 0b0100011 : 0b1011100;
+    uint8_t addr = (addr_pin == 0) ? 0b0100011 : 0b1011100;
     uint16_t lx[12];
     i2c_err = 0; i2c_first_err_line = -1;
     bh1750fvi_readout(addr << 1, lx);
     char s[64];
     snprintf(s, sizeof s, "addr %02x | %5u %5u %5u %5u lx | I2C err = %u line = %d", addr, lx[5], lx[6], lx[7], lx[8], i2c_err, i2c_first_err_line);
     swv_printf("%s\n", s);
+    for (int i = 0; i < 16; i++) led_data[i] = (addr_pin == 0 ? 0xe100ff00 : 0xe1ff0000);
+    led_write(led_data, 16);
   }
 
   // LCD_RSTN (PB6), LCD_BL (PB4), LCD_DC (PB5), LCD_CS (PB9)
@@ -843,7 +852,7 @@ int main()
     if (a_angle < 0) a_angle += 24;
 
     // Output to LEDs
-    uint32_t led_data[8];
+    uint32_t led_data[16];
     static const uint32_t tints[3] = {0xe1080000, 0xe1000800, 0xe1000008};
     for (int i = 0; i < 8; i++)
       led_data[i] = tints[(i + count) % 3];
@@ -852,7 +861,8 @@ int main()
     led_data[a_angle % 8] = 0xe100ffff;
     m_angle = 10 + m_angle % 8;
     if (m_angle >= 10 && m_angle < 18) led_data[17 - m_angle] = 0xe1ffff00;
-    led_write(led_data, 8);
+    for (int i = 0; i < 8; i++) led_data[i + 8] = led_data[i];
+    led_write(led_data, 16);
 
     HAL_Delay(50);
     if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
