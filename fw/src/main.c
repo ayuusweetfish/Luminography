@@ -512,12 +512,14 @@ static void i2c_read_reg(uint8_t addr, uint8_t reg, size_t size, uint8_t *buf)
 #pragma GCC pop_options
 // End of I2C
 
-static inline void bh1750fvi_readout(uint8_t addr, uint16_t results[12])
+static inline void bh1750fvi_readout_start(uint8_t addr)
 {
   // One Time H-Resolution Mode
   uint8_t op = 0x20;
   i2c_write(addr, &op, 1);
-  HAL_Delay(200);
+}
+static inline void bh1750fvi_readout(uint8_t addr, uint16_t results[12])
+{
   uint8_t result[24];
   i2c_read(addr, result, 2);
   for (int i = 0; i < 12; i++) {
@@ -766,23 +768,8 @@ int main()
   read_SDA = _read_SDA;
   write_SDA = _write_SDA;
   i2c_init();
-
-  // while (1)
-  for (int addr_pin = 0; addr_pin <= 1; addr_pin++) {
-    uint8_t addr = (addr_pin == 0) ? 0b0100011 : 0b1011100;
-    uint16_t lx[12];
-    i2c_err = 0; i2c_first_err_line = -1;
-    bh1750fvi_readout(addr << 1, lx);
-    static char s[128];
-    snprintf(s, sizeof s, "addr %02x | %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u lx | I2C err = %u line = %d", addr, lx[9], lx[10], lx[11], lx[0], lx[1], lx[2], lx[3], lx[4], lx[5], lx[6], lx[7], lx[8], i2c_err, i2c_first_err_line);
-    swv_printf("%s\n", s);
-    for (int i = 0; i < 24; i++) led_data[i] = (addr_pin == 0 ? 0xe100ff00 : 0xe1ff0000);
-    led_write(led_data, 24);
-    if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
-      led_flush();
-      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0); // PWR_LATCH
-    }
-  }
+  bh1750fvi_readout_start(0b0100011 << 1);
+  bh1750fvi_readout_start(0b1011100 << 1);
 
   // LCD_RSTN (PB6), LCD_BL (PB4), LCD_DC (PB5), LCD_CS (PB9)
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
@@ -832,7 +819,7 @@ int main()
     static int count = 0;
     // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, (++count) & 1);
 
-    if (HAL_GetTick() >= 2000 && count % 25 == 0) {
+    if (HAL_GetTick() >= 2000 && count % 50 == 0) {
       read_SDA = _read_SDA_06;
       write_SDA = _write_SDA_06;
       i2c_init();
@@ -868,13 +855,28 @@ int main()
     a_angle -= 12;
     if (a_angle < 0) a_angle += 24;
 
-    read_SDA = _read_SDA;
-    write_SDA = _write_SDA;
-    uint16_t lx[24];
-    bh1750fvi_readout(0b0100011 << 1, lx);
-    bh1750fvi_readout(0b1011100 << 1, lx + 12);
-    // swv_printf("> %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u lx\n", lx[0], lx[1], lx[2], lx[3], lx[4], lx[5], lx[6], lx[7], lx[8], lx[9], lx[10], lx[11]);
-    // swv_printf("  %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u lx\n", lx[12], lx[13], lx[14], lx[15], lx[16], lx[17], lx[18], lx[19], lx[20], lx[21], lx[22], lx[23]);
+    static uint16_t lx[24] = { 0 };
+    static uint16_t lowest_lx[3] = { 0 };
+    if (count % 12 == 0) {
+      read_SDA = _read_SDA;
+      write_SDA = _write_SDA;
+      bh1750fvi_readout(0b0100011 << 1, lx);
+      bh1750fvi_readout(0b1011100 << 1, lx + 12);
+      // swv_printf("> %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u lx\n", lx[0], lx[1], lx[2], lx[3], lx[4], lx[5], lx[6], lx[7], lx[8], lx[9], lx[10], lx[11]);
+      // swv_printf("  %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u lx\n", lx[12], lx[13], lx[14], lx[15], lx[16], lx[17], lx[18], lx[19], lx[20], lx[21], lx[22], lx[23]);
+      for (int i = 0; i < 3; i++) lowest_lx[i] = 0xffff;
+      for (int i = 0, j; i < 24; i++) {
+        for (j = 3; j > 0; j--)
+          if (lx[i] >= lowest_lx[j - 1]) break;
+        if (j < 3) {
+          for (int k = 2; k > j; k--) lowest_lx[k] = lowest_lx[k - 1];
+          lowest_lx[j] = lx[i];
+        }
+      }
+      // TODO: Try Otsu's method?
+      bh1750fvi_readout_start(0b0100011 << 1);
+      bh1750fvi_readout_start(0b1011100 << 1);
+    }
 
     // Output to LEDs
     uint32_t led_data[24];
@@ -882,13 +884,16 @@ int main()
       int index = (17 - i + 24) % 24;
       index = index / 2 + (index % 2) * 12;
       uint16_t value = lx[index];
-      led_data[i] = (value >= 1000 ? 0xe1000410 : 0xe1080000);
+      uint32_t th1 = (uint32_t)lowest_lx[2] * 3 / 2;
+      uint32_t th2 = (uint32_t)lowest_lx[2] * 2;
+      led_data[i] = (value >= th2 ? 0xe1000030 :
+        value >= th1 ? 0xe1000410 : 0xe1080000);
     }
     led_data[a_angle] = 0xe100ffff;
     led_data[m_angle] = 0xe1ffff00;
     led_write(led_data, 24);
 
-    HAL_Delay(50);
+    HAL_Delay(20);
     if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
       led_flush();
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0); // PWR_LATCH
