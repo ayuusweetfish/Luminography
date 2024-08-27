@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "elli_fit.h"
+
 static uint8_t swv_buf[256];
 static size_t swv_buf_ptr = 0;
 __attribute__ ((noinline, used))
@@ -604,6 +606,7 @@ static inline void bmi270_read(int16_t mag_out[3], int16_t acc_out[3], int16_t g
   int8_t gyr_cas = ((int8_t)bmi270_read_reg(0x3C) << 1) >> 1;
   gyr_out[0] -= ((uint32_t)gyr_cas * gyr_out[2]) >> 9;
 
+if (0)
   swv_printf("M %6d %6d %6d  A %6d %6d %6d  G %6d %6d %6d\n",
     mag_out[0], mag_out[1], mag_out[2],
     acc_out[0], acc_out[1], acc_out[2],
@@ -815,6 +818,10 @@ int main()
   for (int i = 0; i < 30 * 30 * 2; i++) p[i] = 0xff;
   lcd_data_bulk(p, 30 * 30 * 2);
 
+  float mag_psi[10][10] = {{ 0 }};
+  float m_tfm[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  vec3 m_cen = (vec3){0, 0, 0};
+
   while (1) {
     static int count = 0;
     // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, (++count) & 1);
@@ -848,12 +855,30 @@ int main()
 
     int16_t mag_out[3], acc_out[3], gyr_out[3];
     bmi270_read(mag_out, acc_out, gyr_out);
-    int16_t m_angle = (int16_t)((atan2f(mag_out[1], mag_out[0]) / M_PI + 1) * 12);
+
+    vec3 mag = (vec3){(float)mag_out[0], (float)mag_out[1], (float)mag_out[2]};
+    float mag_scale = 2.f / 1024; // unit = 0.5 G = 0.05 mT ≈ geomagnetic field
+    mag = vec3_scale(mag, mag_scale);
+    elli_fit_insert(mag_psi, mag, 0.01);
+    if (count % 25 == 0 && count <= 200) {
+      float c[3];
+      elli_fit_psi(mag_psi, m_tfm, c);
+      m_cen = (vec3){c[0], c[1], c[2]};
+      // vec3 m1 = vec3_transform(m_tfm, vec3_diff(mag, m_cen));
+      // swv_printf("%6d %6d %6d\n", (int)(m1.x * 1000), (int)(m1.y * 1000), (int)(m1.z * 1000));
+      swv_printf("%6d %6d %6d\n", (int)(m_cen.x * 1000), (int)(m_cen.y * 1000), (int)(m_cen.z * 1000));
+    }
+    // mag = vec3_transform(m_tfm, vec3_diff(mag, m_cen));
+    mag = vec3_diff(mag, m_cen);
+
+    int16_t m_angle = (int16_t)((atan2f(mag.y, mag.x) / M_PI + 1) * 12);
     if (m_angle < 0) m_angle += 24;
     if (m_angle >= 24) m_angle -= 24;
     int16_t a_angle = (int16_t)((atan2f(acc_out[1], acc_out[0]) / M_PI + 1) * 12 + 0.5);
     a_angle -= 12;
     if (a_angle < 0) a_angle += 24;
+
+    // Lux meters
 
     static uint16_t lx[24] = { 0 };
     static uint16_t lowest_lx[3] = { 0 };
