@@ -1,10 +1,12 @@
-# ~/.platformio/packages/tool-openocd/bin/openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c 'adapter speed 32000; init; reset init'
-
-# (cd ~/Downloads/stlink; ./build/Release/bin/st-info --probe --connect-under-reset)
-# (cd ~/Downloads/stlink; ./build/Release/bin/st-flash --connect-under-reset write $OLDPWD/.pio/build/dev/firmware.bin 0x8000000)
-# ~/.platformio/packages/tool-openocd/bin/openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c 'program {.pio/build/dev/firmware.elf} verify reset; shutdown'
-
-# ~/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-objdump -d .pio/build/dev/firmware.elf
+if [ "$1" == "f" ]; then  # flash
+  ~/.platformio/packages/tool-openocd/bin/openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c 'program {.pio/build/dev/firmware.elf} verify reset; shutdown'
+  exit
+elif [ "$1" == "s" ]; then  # serve
+  ~/.platformio/packages/tool-openocd/bin/openocd -f interface/cmsis-dap.cfg -f target/stm32g0x.cfg -c 'adapter speed 32000; init'
+  exit
+elif [ "$1" == "d" ]; then  # disassembly
+  ~/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-objdump -d .pio/build/dev/firmware.elf
+fi
 
 cat >debug/gdbinit <<EOF
 define hook-quit

@@ -516,8 +516,12 @@ static void i2c_read_reg(uint8_t addr, uint8_t reg, size_t size, uint8_t *buf)
 
 static inline void bh1750fvi_readout_start(uint8_t addr)
 {
-  // One Time H-Resolution Mode
-  uint8_t op = 0x20;
+  // 0x1_ - Continuous
+  // 0x2_ - One Time
+  // 0x_0 - H-Resolution Mode
+  // 0x_1 - H-Resolution Mode2
+  // 0x_3 - L-Resolution Mode
+  uint8_t op = 0x13;
   i2c_write(addr, &op, 1);
 }
 static inline void bh1750fvi_readout(uint8_t addr, uint16_t results[12])
@@ -882,7 +886,7 @@ int main()
 
     static uint16_t lx[24] = { 0 };
     static uint16_t lowest_lx[3] = { 0 };
-    if (count % 12 == 0) {
+    if (1) {
       read_SDA = _read_SDA;
       write_SDA = _write_SDA;
       bh1750fvi_readout(0b0100011 << 1, lx);
@@ -899,8 +903,6 @@ int main()
         }
       }
       // TODO: Try Otsu's method?
-      bh1750fvi_readout_start(0b0100011 << 1);
-      bh1750fvi_readout_start(0b1011100 << 1);
     }
 
     // Output to LEDs
