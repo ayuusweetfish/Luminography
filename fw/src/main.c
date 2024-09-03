@@ -242,8 +242,9 @@ static stereo_sample_t audio_pcm_buf[N_AUDIO_PCM_BUF] = { 0 };
 
 static uint8_t tile_pixels[30 * 30 * 2];
 
-static uint32_t tile_num = 0;
-static volatile bool lcd_dma_busy = false;
+static uint32_t screen_c1 = 0x0, screen_c2 = 0x0, screen_c3 = 0x0, screen_c4 = 0x0;
+#pragma GCC push_options
+#pragma GCC optimize("O3")
 static void lcd_tile_fill(uint32_t tile_num)
 {
   uint32_t x0 = tile_num % 8 * 30;
@@ -255,20 +256,36 @@ static void lcd_tile_fill(uint32_t tile_num)
       uint32_t dsq =
         (x * 2 + 1 - 240) * (x * 2 + 1 - 240) +
         (y * 2 + 1 - 240) * (y * 2 + 1 - 240);
-      if (dsq >= 4 * 100 * 100 && dsq <= 4 * 110 * 110) {
-        tile_pixels[i + 0] = 0b00100100;
-        tile_pixels[i + 1] = 0b00001000;
+      if (dsq >= 4 * 106 * 106 && dsq <= 4 * 116 * 116) {
+        tile_pixels[i + 0] = screen_c3;
+        tile_pixels[i + 1] = screen_c4;
       } else {
-        tile_pixels[i + 0] = tile_pixels[i + 1] = 0x00;
+        tile_pixels[i + 0] = screen_c1;
+        tile_pixels[i + 1] = screen_c2;
       }
     }
   lcd_addr(x0, y0, x0 + 30 - 1, y0 + 30 - 1);
 }
-static void lcd_tiles_next()
+#pragma GCC pop_options
+
+static volatile bool lcd_dma_busy = false;
+static void lcd_tiles_next(uint32_t tile_num)
 {
+  // Transform tile number by Bayer matrix (8x8)
+  static const uint8_t bayer_8x8_inv[64] = {
+     0, 36,  4, 32, 18, 54, 22, 50,
+     2, 38,  6, 34, 16, 52, 20, 48,
+     9, 45, 13, 41, 27, 63, 31, 59,
+    11, 47, 15, 43, 25, 61, 29, 57,
+     1, 37,  5, 33, 19, 55, 23, 51,
+     3, 39,  7, 35, 17, 53, 21, 49,
+     8, 44, 12, 40, 26, 62, 30, 58,
+    10, 46, 14, 42, 24, 60, 28, 56,
+  };
+  // tile_num = bayer_8x8_inv[tile_num];
+
   while (SPI2->SR & SPI_SR_BSY) { }
   lcd_tile_fill(tile_num);
-  tile_num = (tile_num + 1) % 64;
   lcd_dma_busy = true;
   lcd_data_bulk_dma(tile_pixels, 30 * 30 * 2);
 }
@@ -824,7 +841,7 @@ int main()
     .Mode = GPIO_MODE_OUTPUT_PP,
   });
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, 0);
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, 1);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, 0);  // Turn off backlight
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, 0);
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
 
@@ -877,7 +894,16 @@ int main()
 
   lcd_init();
 
-  for (int i = 0; i < 64; i++) lcd_tiles_next();
+  // Fill screen with black
+  for (int x0 = 0; x0 < 240; x0 += 30)
+    for (int y0 = 0; y0 < 240; y0 += 30) {
+      lcd_addr(x0, y0, x0 + 30 - 1, y0 + 30 - 1);
+      lcd_dma_busy = true;
+      lcd_data_bulk_dma(tile_pixels, 30 * 30 * 2);
+      while (lcd_dma_busy) { }
+    }
+  HAL_Delay(20);
+  lcd_bl(1);  // Turn on backlight
 
   // ======== DMA for I2S ========
   __HAL_RCC_DMA1_CLK_ENABLE();
@@ -938,7 +964,6 @@ int main()
 
   while (1) {
     static int count = 0;
-    // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, (++count) & 1);
 
     if (HAL_GetTick() >= 2000 && count % 50 == 0) {
       read_SDA = _read_SDA_06;
@@ -951,6 +976,24 @@ int main()
     }
 
     count++;
+
+    static uint32_t last_screen_refresh = 0, tile = 64;
+    if (HAL_GetTick() / 1024 != last_screen_refresh) {
+      last_screen_refresh = HAL_GetTick() / 1024;
+      // RGB565
+      if (last_screen_refresh % 2 == 0) {
+        screen_c1 = 0b00000000;
+        screen_c2 = 0b00000000;
+        screen_c3 = 0b00100100;
+        screen_c4 = 0b00001000;
+      } else {
+        screen_c1 = 0b00100001;
+        screen_c2 = 0b00000100;
+        screen_c3 = 0b10000011;
+        screen_c4 = 0b00001000;
+      }
+      tile = 0;
+    }
 
     read_SDA = _read_SDA_04;
     write_SDA = _write_SDA_04;
@@ -1018,7 +1061,17 @@ int main()
     led_data[m_angle] = 0xe1ffff00;
     led_write(led_data, 24);
 
-    HAL_Delay(20);
+    // HAL_Delay(20);
+
+    static uint32_t last_tick = 0;
+
+    if (tile < 64 && !lcd_dma_busy)
+      for (int i = 0; i < 32; i++) lcd_tiles_next(tile++);
+
+    uint32_t cur_tick = HAL_GetTick();
+    if (cur_tick - last_tick >= 20) last_tick = cur_tick;
+    else { last_tick += 20; HAL_Delay(last_tick - cur_tick); }
+
     if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == 1 || HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == 1) {
       led_flush();
       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, 0); // PWR_LATCH

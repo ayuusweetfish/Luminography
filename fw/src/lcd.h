@@ -53,8 +53,6 @@ static inline void lcd_init()
   HAL_Delay(100);
   lcd_rstn(1);
   HAL_Delay(100);
-  lcd_bl(1);
-  HAL_Delay(100);
 
   lcd_reg(0xEF);
 
