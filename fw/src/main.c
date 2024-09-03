@@ -1087,7 +1087,7 @@ void SysTick_Handler()
 
 static inline void refill_audio(stereo_sample_t *restrict a, int n)
 {
-/*
+  return;
   // 1 s of noise followed by 1 s of triangle wave
   static uint32_t count = 0;
   static uint32_t seed = 20240902;
@@ -1109,7 +1109,6 @@ static inline void refill_audio(stereo_sample_t *restrict a, int n)
       a[i] = sample(0);
     }
   }
-*/
 }
 
 void DMA1_Channel1_IRQHandler()
