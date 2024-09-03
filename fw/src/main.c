@@ -238,7 +238,7 @@ typedef struct __attribute__ ((packed, aligned(4))) { int16_t l, r; } stereo_sam
 static inline stereo_sample_t sample(int16_t x) { return (stereo_sample_t){x, x}; }
 // Buffer for audio samples
 #define N_AUDIO_PCM_BUF 240
-static stereo_sample_t audio_pcm_buf[N_AUDIO_PCM_BUF];
+static stereo_sample_t audio_pcm_buf[N_AUDIO_PCM_BUF] = { 0 };
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
@@ -795,6 +795,25 @@ int main()
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, 0);
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, 1);
 
+  // ======== DMA for SPI ========
+  __HAL_RCC_DMA1_CLK_ENABLE();
+  DMA_HandleTypeDef dma_spi2_tx;
+  dma_spi2_tx.Instance = DMA1_Channel2;
+  dma_spi2_tx.Init.Request = DMA_REQUEST_SPI2_TX;
+  dma_spi2_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
+  dma_spi2_tx.Init.PeriphInc = DMA_PINC_DISABLE;
+  dma_spi2_tx.Init.MemInc = DMA_MINC_ENABLE;
+  dma_spi2_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+  dma_spi2_tx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+  dma_spi2_tx.Init.Mode = DMA_NORMAL;
+  dma_spi2_tx.Init.Priority = DMA_PRIORITY_LOW;
+  HAL_DMA_Init(&dma_spi2_tx);
+
+  HAL_NVIC_SetPriority(DMA1_Channel2_3_IRQn, 15, 1);
+  HAL_NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
+  HAL_NVIC_SetPriority(SPI2_IRQn, 15, 2);
+  HAL_NVIC_EnableIRQ(SPI2_IRQn);
+
   // ======== SPI ========
   // SPI2_MOSI (PB7), SPI2_SCK (PB8)
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
@@ -819,6 +838,7 @@ int main()
       .BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2,
     },
   };
+  __HAL_LINKDMA(&spi2, hdmatx, dma_spi2_tx);
   HAL_SPI_Init(&spi2);
   __HAL_SPI_ENABLE(&spi2);
 
@@ -826,8 +846,8 @@ int main()
 
   lcd_addr(105, 105, 134, 134);
   static uint8_t p[30 * 30 * 2];
-  for (int i = 0; i < 30 * 30 * 2; i++) p[i] = 0xff;
-  lcd_data_bulk(p, 30 * 30 * 2);
+  for (int i = 0; i < 30 * 30 * 2; i++) p[i] = 0xaa;
+  lcd_data_bulk_dma(p, 30 * 30 * 2);
 
   // ======== DMA for I2S ========
   __HAL_RCC_DMA1_CLK_ENABLE();
@@ -843,9 +863,9 @@ int main()
   dma_i2s1_tx.Init.Priority = DMA_PRIORITY_LOW;
   HAL_DMA_Init(&dma_i2s1_tx);
 
-  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 15, 1);
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 14, 1);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-  HAL_NVIC_SetPriority(SPI1_IRQn, 15, 2);
+  HAL_NVIC_SetPriority(SPI1_IRQn, 14, 2);
   HAL_NVIC_EnableIRQ(SPI1_IRQn);
 
   // ======== I2S ========
@@ -879,7 +899,7 @@ int main()
   swv_printf("I2S clock = %u\n", HAL_RCCEx_GetPeriphCLKFreq(RCC_PERIPHCLK_I2S1));
   // 64000000, divider is 64000000 / 16 / 40k = 100
 
-  for (int i = 0; i < N_AUDIO_PCM_BUF; i++) audio_pcm_buf[i] = sample(0);
+  // `audio_pcm_buf` is zero-filled (in section `.bss`)
   HAL_I2S_Transmit_DMA(&i2s1, (uint16_t *)audio_pcm_buf, N_AUDIO_PCM_BUF * 2);
 
   float mag_psi[10][10] = {{ 0 }};
@@ -996,6 +1016,7 @@ void SysTick_Handler()
 
 static inline void refill_audio(stereo_sample_t *restrict a, int n)
 {
+/*
   // 1 s of noise followed by 1 s of triangle wave
   static uint32_t count = 0;
   static uint32_t seed = 20240902;
@@ -1017,6 +1038,7 @@ static inline void refill_audio(stereo_sample_t *restrict a, int n)
       a[i] = sample(0);
     }
   }
+*/
 }
 
 void DMA1_Channel1_IRQHandler()
@@ -1036,6 +1058,20 @@ void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *i2s1)
   refill_audio(audio_pcm_buf + N_AUDIO_PCM_BUF / 2, N_AUDIO_PCM_BUF / 2);
 }
 
+void DMA1_Channel2_3_IRQHandler()
+{
+  HAL_DMA_IRQHandler(spi2.hdmatx);
+}
+void SPI2_IRQHandler()
+{
+  HAL_SPI_IRQHandler(&spi2);
+}
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *spi2)
+{
+  lcd_cs(1);
+  swv_printf("tx ok!\n");
+}
+
 void NMI_Handler() { while (1) { } }
 void HardFault_Handler() { while (1) { } }
 void SVC_Handler() { while (1) { } }
@@ -1047,7 +1083,6 @@ void RCC_IRQHandler() { while (1) { } }
 void EXTI0_1_IRQHandler() { while (1) { } }
 void EXTI2_3_IRQHandler() { while (1) { } }
 void EXTI4_15_IRQHandler() { while (1) { } }
-void DMA1_Channel2_3_IRQHandler() { while (1) { } }
 void DMA1_Ch4_5_DMAMUX1_OVR_IRQHandler() { while (1) { } }
 void ADC1_IRQHandler() { while (1) { } }
 void TIM1_BRK_UP_TRG_COM_IRQHandler() { while (1) { } }
@@ -1058,6 +1093,5 @@ void TIM16_IRQHandler() { while (1) { } }
 void TIM17_IRQHandler() { while (1) { } }
 void I2C1_IRQHandler() { while (1) { } }
 void I2C2_IRQHandler() { while (1) { } }
-void SPI2_IRQHandler() { while (1) { } }
 void USART1_IRQHandler() { while (1) { } }
 void USART2_IRQHandler() { while (1) { } }

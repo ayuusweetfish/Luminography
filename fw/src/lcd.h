@@ -32,6 +32,12 @@ static inline void lcd_data_bulk(const uint8_t *x, uint32_t n)
   lcd_cs(1);
 }
 
+static inline void lcd_data_bulk_dma(const uint8_t *x, uint32_t n)
+{
+  lcd_cs(0);
+  HAL_SPI_Transmit_DMA(&spi2, (uint8_t *)x, n);
+}
+
 static inline void lcd_reg(uint8_t x)
 {
   lcd_dc(0);
