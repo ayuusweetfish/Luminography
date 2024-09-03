@@ -240,6 +240,39 @@ static inline stereo_sample_t sample(int16_t x) { return (stereo_sample_t){x, x}
 #define N_AUDIO_PCM_BUF 240
 static stereo_sample_t audio_pcm_buf[N_AUDIO_PCM_BUF] = { 0 };
 
+static uint8_t tile_pixels[30 * 30 * 2];
+
+static uint32_t tile_num = 0;
+static volatile bool lcd_dma_busy = false;
+static void lcd_tile_fill(uint32_t tile_num)
+{
+  uint32_t x0 = tile_num % 8 * 30;
+  uint32_t y0 = tile_num / 8 * 30;
+  for (int dy = 0; dy < 30; dy++)
+    for (int dx = 0; dx < 30; dx++) {
+      uint32_t i = (dy * 30 + dx) * 2;
+      uint32_t x = x0 + dx, y = y0 + dy;
+      uint32_t dsq =
+        (x * 2 + 1 - 240) * (x * 2 + 1 - 240) +
+        (y * 2 + 1 - 240) * (y * 2 + 1 - 240);
+      if (dsq >= 4 * 100 * 100 && dsq <= 4 * 110 * 110) {
+        tile_pixels[i + 0] = 0b00100100;
+        tile_pixels[i + 1] = 0b00001000;
+      } else {
+        tile_pixels[i + 0] = tile_pixels[i + 1] = 0x00;
+      }
+    }
+  lcd_addr(x0, y0, x0 + 30 - 1, y0 + 30 - 1);
+}
+static void lcd_tiles_next()
+{
+  while (SPI2->SR & SPI_SR_BSY) { }
+  lcd_tile_fill(tile_num);
+  tile_num = (tile_num + 1) % 64;
+  lcd_dma_busy = true;
+  lcd_data_bulk_dma(tile_pixels, 30 * 30 * 2);
+}
+
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 static void i2c_delay()
@@ -844,10 +877,7 @@ int main()
 
   lcd_init();
 
-  lcd_addr(105, 105, 134, 134);
-  static uint8_t p[30 * 30 * 2];
-  for (int i = 0; i < 30 * 30 * 2; i++) p[i] = 0xaa;
-  lcd_data_bulk_dma(p, 30 * 30 * 2);
+  for (int i = 0; i < 64; i++) lcd_tiles_next();
 
   // ======== DMA for I2S ========
   __HAL_RCC_DMA1_CLK_ENABLE();
@@ -921,18 +951,6 @@ int main()
     }
 
     count++;
-  if (0) {
-    for (int i = 0; i < 30 * 30 * 2; i += 2) {
-      p[i + 0] = 0xff;
-      p[i + 1] = 0xff - (count << 2);
-      if (count == 6) {
-        p[i + 0] = 0b00000010;
-        p[i + 1] = 0b00000000;
-      }
-    }
-    lcd_addr(105, 105, 134, 134);
-    lcd_data_bulk(p, 30 * 30 * 2);
-  }
 
     read_SDA = _read_SDA_04;
     write_SDA = _write_SDA_04;
@@ -1069,7 +1087,8 @@ void SPI2_IRQHandler()
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *spi2)
 {
   lcd_cs(1);
-  swv_printf("tx ok!\n");
+  // swv_printf("tx ok!\n");
+  lcd_dma_busy = false;
 }
 
 void NMI_Handler() { while (1) { } }
