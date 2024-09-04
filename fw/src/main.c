@@ -266,7 +266,22 @@ static void lcd_tile_fill(uint32_t tile_num)
     }
   lcd_addr(x0, y0, x0 + 30 - 1, y0 + 30 - 1);
 }
-#pragma GCC pop_options
+
+static void lcd_fill(uint8_t byte)
+{
+  lcd_addr(0, 0, 239, 239);
+  lcd_cs(0);
+  for (int i = 0; i < 240 * 240 * 2; i++) {
+    while (!(SPI2->SR & SPI_SR_TXE)) { }
+    SPI2->DR = byte;
+  }
+  while (!(SPI2->SR & SPI_SR_TXE)) { }
+  while ((SPI2->SR & SPI_SR_BSY)) { }
+  // Clear OVR flag
+  (void)SPI2->DR;
+  (void)SPI2->SR;
+  lcd_cs(1);
+}
 
 static volatile bool lcd_dma_busy = false;
 static void lcd_tiles_next(uint32_t tile_num)
@@ -289,6 +304,7 @@ static void lcd_tiles_next(uint32_t tile_num)
   lcd_dma_busy = true;
   lcd_data_bulk_dma(tile_pixels, 30 * 30 * 2);
 }
+#pragma GCC pop_options
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
@@ -895,14 +911,8 @@ int main()
   lcd_init();
 
   // Fill screen with black
-  for (int x0 = 0; x0 < 240; x0 += 30)
-    for (int y0 = 0; y0 < 240; y0 += 30) {
-      lcd_addr(x0, y0, x0 + 30 - 1, y0 + 30 - 1);
-      lcd_dma_busy = true;
-      lcd_data_bulk_dma(tile_pixels, 30 * 30 * 2);
-      while (lcd_dma_busy) { }
-    }
-  HAL_Delay(20);
+  lcd_fill(0x00);
+  HAL_Delay(5);
   lcd_bl(1);  // Turn on backlight
 
   // ======== DMA for I2S ========
@@ -1067,6 +1077,12 @@ int main()
 
     if (tile < 64 && !lcd_dma_busy)
       for (int i = 0; i < 32; i++) lcd_tiles_next(tile++);
+    if (0 && tile < 64) {
+      tile = 64;
+      static bool parity = 0;
+      parity ^= 1;
+      lcd_fill(parity ? 0xaa : 0x00);
+    }
 
     uint32_t cur_tick = HAL_GetTick();
     if (cur_tick - last_tick >= 20) last_tick = cur_tick;

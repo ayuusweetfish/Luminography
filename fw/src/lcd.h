@@ -3,6 +3,9 @@
 #define lcd_dc(_v)   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, _v)
 #define lcd_cs(_v)   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, _v)
 
+#pragma GCC push_options
+#pragma GCC optimize("O3")
+
 static inline void lcd_data(uint8_t x)
 {
   lcd_cs(0);
@@ -297,3 +300,5 @@ static inline void lcd_addr(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
   lcd_data16(y2);
   lcd_reg(0x2c);
 }
+
+#pragma GCC pop_options
