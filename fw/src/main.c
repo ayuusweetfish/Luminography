@@ -242,9 +242,11 @@ static inline stereo_sample_t sample(int16_t x) { return (stereo_sample_t){x, x}
 #define N_AUDIO_PCM_BUF 240
 static stereo_sample_t audio_pcm_buf[N_AUDIO_PCM_BUF] = { 0 };
 
-static uint8_t tile_pixels[30 * 30 * 2];
+#define TILE_S 20
+#define TILE_N (240 / TILE_S)
+static uint8_t tile_pixels[TILE_S * TILE_S * 2];
 
-static bool tile_dirty[64] = { false };
+static bool tile_dirty[TILE_N * TILE_N] = { false };
 static uint32_t compass_x = 0, compass_y = 0;
 
 static uint32_t screen_c1 = 0x0, screen_c2 = 0x0, screen_c3 = 0x0, screen_c4 = 0x0;
@@ -257,11 +259,11 @@ static uint32_t screen_c1 = 0x0, screen_c2 = 0x0, screen_c3 = 0x0, screen_c4 = 0
   ((uint16_t)((_g) & 0b11100000) >>  5))
 static void lcd_tile_fill(uint32_t tile_num)
 {
-  uint32_t x0 = tile_num % 8 * 30;
-  uint32_t y0 = tile_num / 8 * 30;
-  for (int dy = 0; dy < 30; dy++)
-    for (int dx = 0; dx < 30; dx++) {
-      uint32_t i = (dy * 30 + dx) * 2;
+  uint32_t x0 = tile_num % TILE_N * TILE_S;
+  uint32_t y0 = tile_num / TILE_N * TILE_S;
+  for (int dy = 0; dy < TILE_S; dy++)
+    for (int dx = 0; dx < TILE_S; dx++) {
+      uint32_t i = (dy * TILE_S + dx) * 2;
       uint32_t x = x0 + dx, y = y0 + dy;
       uint32_t dsq = norm(x * 2 + 1 - 240, y * 2 + 1 - 240);
       if (dsq >= 4 * 106 * 106 && dsq <= 4 * 116 * 116) {
@@ -282,7 +284,7 @@ static void lcd_tile_fill(uint32_t tile_num)
         *(uint16_t *)(tile_pixels + i) = rgb565(r, g, b);
       }
     }
-  lcd_addr(x0, y0, x0 + 30 - 1, y0 + 30 - 1);
+  lcd_addr(x0, y0, x0 + TILE_S - 1, y0 + TILE_S - 1);
 }
 
 static void lcd_fill(uint8_t byte)
@@ -304,23 +306,10 @@ static void lcd_fill(uint8_t byte)
 static volatile bool lcd_dma_busy = false;
 static void lcd_tiles_next(uint32_t tile_num)
 {
-  // Transform tile number by Bayer matrix (8x8)
-  static const uint8_t bayer_8x8_inv[64] = {
-     0, 36,  4, 32, 18, 54, 22, 50,
-     2, 38,  6, 34, 16, 52, 20, 48,
-     9, 45, 13, 41, 27, 63, 31, 59,
-    11, 47, 15, 43, 25, 61, 29, 57,
-     1, 37,  5, 33, 19, 55, 23, 51,
-     3, 39,  7, 35, 17, 53, 21, 49,
-     8, 44, 12, 40, 26, 62, 30, 58,
-    10, 46, 14, 42, 24, 60, 28, 56,
-  };
-  // tile_num = bayer_8x8_inv[tile_num];
-
   while (SPI2->SR & SPI_SR_BSY) { }
   lcd_tile_fill(tile_num);
   lcd_dma_busy = true;
-  lcd_data_bulk_dma(tile_pixels, 30 * 30 * 2);
+  lcd_data_bulk_dma(tile_pixels, TILE_S * TILE_S * 2);
 }
 #pragma GCC pop_options
 
@@ -1005,9 +994,9 @@ int main()
 
     count++;
 
-    static uint32_t last_screen_refresh = 0, tile = 64;
-    if (HAL_GetTick() / 256 != last_screen_refresh) {
-      last_screen_refresh = HAL_GetTick() / 256;
+    static uint32_t last_screen_refresh = 0, tile = TILE_N * TILE_N;
+    if (HAL_GetTick() / 64 != last_screen_refresh) {
+      last_screen_refresh = HAL_GetTick() / 64;
       // RGB565
       if (last_screen_refresh % 8 < 4) {
         screen_c1 = 0b00000000;
@@ -1022,7 +1011,9 @@ int main()
       }
       tile = 0;
       // lcd_brightness(last_screen_refresh % 2 == 0 ? 0x0 : 0xff);
-      const uint8_t ring_tiles[] = {1, 2, 3, 4, 5, 6, 8, 9, 10, 13, 14, 15, 16, 17, 22, 23, 24, 31, 32, 39, 40, 41, 46, 47, 48, 49, 50, 53, 54, 55, 57, 58, 59, 60, 61, 62};
+      const uint8_t ring_tiles[] = {
+        3, 4, 5, 6, 7, 8, 13, 14, 15, 16, 19, 20, 21, 22, 25, 26, 33, 34, 36, 37, 46, 47, 48, 49, 58, 59, 60, 71, 72, 83, 84, 85, 94, 95, 96, 97, 106, 107, 109, 110, 117, 118, 121, 122, 123, 124, 127, 128, 129, 130, 135, 136, 137, 138, 139, 140,
+      };
       for (int i = 0; i < sizeof ring_tiles / sizeof ring_tiles[0]; i++)
         tile_dirty[ring_tiles[i]] = true;
     }
@@ -1048,9 +1039,6 @@ int main()
     // mag = vec3_transform(m_tfm, vec3_diff(mag, m_cen));
     mag = vec3_diff(mag, m_cen);
 
-    int16_t m_angle = (int16_t)((atan2f(mag.y, mag.x) / M_PI + 1) * 12);
-    if (m_angle < 0) m_angle += 24;
-    if (m_angle >= 24) m_angle -= 24;
     int16_t a_angle = (int16_t)((atan2f(acc_out[1], acc_out[0]) / M_PI + 1) * 12 + 0.5);
     a_angle -= 12;
     if (a_angle < 0) a_angle += 24;
@@ -1094,16 +1082,15 @@ int main()
         value >= th1 ? 0xe1000410 : 0xe1080000);
     }
     led_data[a_angle] = 0xe100ffff;
-    led_data[m_angle] = 0xe1ffff00;
     led_write(led_data, 24);
 
     // HAL_Delay(20);
 
     static uint32_t last_tick = 0;
 
-    if (tile < 64 && !lcd_dma_busy)
-      for (int i = 0; i < 32; i++, tile++)
-        if (tile_dirty[tile]) lcd_tiles_next(tile);
+    if (tile < TILE_N * TILE_N && !lcd_dma_busy)
+      for (int i = 0; i < 32 && tile < TILE_N * TILE_N; tile++)
+        if (tile_dirty[tile]) { lcd_tiles_next(tile); i++; }
 
     uint32_t cur_tick = HAL_GetTick();
     if (cur_tick - last_tick >= 20) last_tick = cur_tick;
