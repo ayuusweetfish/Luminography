@@ -257,7 +257,7 @@ static uint8_t n_screen_elements = 0;
 
 static uint32_t compass_x = 0, compass_y = 0;
 
-static uint32_t screen_c1 = 0x0, screen_c2 = 0x0, screen_c3 = 0x0, screen_c4 = 0x0;
+static uint32_t screen_c3 = 0x0, screen_c4 = 0x0;
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 #define rgb565(_r, _g, _b) ( \
@@ -282,13 +282,44 @@ static void outer_ring_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
     for (int dx = 0; dx < TILE_S; dx++) {
       uint32_t i = (dy * TILE_S + dx) * 2;
       uint32_t x = x0 + dx, y = y0 + dy;
-      uint32_t dsq = norm(x * 2 + 1 - 240, y * 2 + 1 - 240);
+      // Coordinates translated w.r.t. centre
+      int32_t xc = x * 2 + 1 - 240;
+      int32_t yc = y * 2 + 1 - 240;
+      uint32_t dsq = norm(xc, yc);
       if (dsq >= 4 * 106 * 106 && dsq <= 4 * 116 * 116) {
-        pixels[i + 0] = screen_c3;
-        pixels[i + 1] = screen_c4;
+        // Find which 24-ant
+        // (1) Normalise to the first quadrant
+        uint32_t div = 0;
+        int32_t swap_t;
+        if (xc >= 0) {
+          if (yc >= 0) { div = 6; }
+          else { div = 0; swap_t = xc; xc = -yc; yc = swap_t; }
+        } else {
+          if (yc >= 0) { div = 18; swap_t = xc; xc = yc; yc = -swap_t; }
+          else { div = 12; xc = -xc; yc = -yc; }
+        }
+        // (2) Normalise to the first octant
+        bool flip = false;
+        if (yc > xc) {
+          swap_t = xc; xc = yc; yc = swap_t;
+          flip = true;
+        }
+        // (3) Discriminate between the 3 subdivisions
+        int32_t div3 = 0;
+        if (3 * yc * yc >= xc * xc) div3 = 2;
+        else if (780 * yc * yc >= 56 * xc * xc) div3 = 1;
+
+        div += (flip ? (5 - div3) : div3);
+
+        if ((div & 1) ^ (screen_c3 & 1)) {
+          pixels[i + 0] = screen_c3;
+          pixels[i + 1] = screen_c4;
+        } else {
+          pixels[i + 0] = 0x00;
+          pixels[i + 1] = 0x00;
+        }
       } else {
-        pixels[i + 0] = screen_c1;
-        pixels[i + 1] = screen_c2;
+        *(uint16_t *)(pixels + i) = 0x0000;
       }
     }
 }
@@ -326,7 +357,7 @@ static void compass_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
       if (n < 38 * 256 * 256) {
         *(uint16_t *)(tile_pixels + i) = rgb565(0xff, 0xc0, 0x20);
       } else if (n < 40 * 256 * 256) {
-        uint32_t rate = (n - 38 * 256 * 256) / (2 * 256);
+        uint32_t rate = (n - 35 * 256 * 256) / (5 * 256);
         uint32_t r = rate * 0xff / 256;
         uint32_t g = rate * 0xc0 / 256;
         uint32_t b = rate * 0x20 / 256;
@@ -1138,13 +1169,9 @@ int main()
       lcd_new_frame();
       // RGB565
       if (1 && last_screen_refresh % 8 < 4) {
-        screen_c1 = 0b00000000;
-        screen_c2 = 0b00000000;
         screen_c3 = 0b00100100;
         screen_c4 = 0b00001000;
       } else {
-        screen_c1 = 0b00100001;
-        screen_c2 = 0b00000100;
         screen_c3 = 0b10000011;
         screen_c4 = 0b00001000;
       }
