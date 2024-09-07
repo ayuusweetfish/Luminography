@@ -248,7 +248,7 @@ static uint8_t tile_pixels[TILE_S * TILE_S * 2];
 
 typedef struct screen_element {
   uint8_t dirty[(TILE_N * TILE_N + 7) / 8]; // bit vector
-  void (*update)(struct screen_element *self);
+  void (*update)(struct screen_element *self, uint8_t *dirty);
   void (*fill_tile)(uint32_t x0, uint32_t y0, uint8_t *pixels);
 } screen_element;
 
@@ -266,14 +266,14 @@ static uint32_t screen_c1 = 0x0, screen_c2 = 0x0, screen_c3 = 0x0, screen_c4 = 0
   ((uint16_t)((_r) & 0b11111000) <<  0) | \
   ((uint16_t)((_g) & 0b11100000) >>  5))
 
-static void outer_ring_update(screen_element *self)
+static void outer_ring_update(screen_element *restrict self, uint8_t *restrict dirty)
 {
   const uint8_t ring_tiles[] = {
     3, 4, 5, 6, 7, 8, 13, 14, 15, 16, 19, 20, 21, 22, 25, 26, 33, 34, 36, 37, 46, 47, 48, 49, 58, 59, 60, 71, 72, 83, 84, 85, 94, 95, 96, 97, 106, 107, 109, 110, 117, 118, 121, 122, 123, 124, 127, 128, 129, 130, 135, 136, 137, 138, 139, 140,
   };
   // XXX: Pack this
   for (int i = 0; i < sizeof ring_tiles / sizeof ring_tiles[0]; i++) {
-    self->dirty[ring_tiles[i] / 8] |= (1 << (ring_tiles[i] % 8));
+    dirty[ring_tiles[i] / 8] |= (1 << (ring_tiles[i] % 8));
   }
 }
 static void outer_ring_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
@@ -293,11 +293,28 @@ static void outer_ring_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
     }
 }
 
-static void compass_update(screen_element *self)
+static void compass_update(screen_element *restrict self, uint8_t *restrict dirty)
 {
-  // TODO
-  outer_ring_update(self);
-  self->dirty[78 / 8] |= (1 << (78 % 8));
+  static uint32_t last_tile_x_min = 0, last_tile_x_max = 0;
+  static uint32_t last_tile_y_min = 0, last_tile_y_max = 0;
+  for (uint32_t y = last_tile_y_min; y <= last_tile_y_max; y++)
+    for (uint32_t x = last_tile_x_min; x <= last_tile_x_max; x++) {
+      uint32_t tile_num = y * TILE_N + x;
+      dirty[tile_num / 8] |= (1 << (tile_num % 8));
+    }
+
+  uint32_t tile_x_min = (compass_x / 256 - 7) / TILE_S;
+  uint32_t tile_x_max = (compass_x / 256 + 7) / TILE_S;
+  uint32_t tile_y_min = (compass_y / 256 - 7) / TILE_S;
+  uint32_t tile_y_max = (compass_y / 256 + 7) / TILE_S;
+  for (uint32_t y = tile_y_min; y <= tile_y_max; y++)
+    for (uint32_t x = tile_x_min; x <= tile_x_max; x++) {
+      uint32_t tile_num = y * TILE_N + x;
+      dirty[tile_num / 8] |= (1 << (tile_num % 8));
+    }
+
+  last_tile_x_min = tile_x_min; last_tile_x_max = tile_x_max;
+  last_tile_y_min = tile_y_min; last_tile_y_max = tile_y_max;
 }
 static void compass_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
 {
@@ -339,7 +356,7 @@ static void lcd_new_frame()
 {
   uint8_t dirty[(TILE_N * TILE_N + 7) / 8] = { 0 };
   for (int i = 0; i < n_screen_elements; i++) {
-    screen_elements[i]->update(screen_elements[i]);
+    screen_elements[i]->update(screen_elements[i], dirty);
     for (int j = 0; j < (TILE_N * TILE_N + 7) / 8; j++)
       dirty[j] |= screen_elements[i]->dirty[j];
   }
@@ -348,9 +365,7 @@ static void lcd_new_frame()
       uint32_t x0 = tile_num % TILE_N * TILE_S;
       uint32_t y0 = tile_num / TILE_N * TILE_S;
       for (int j = 0; j < n_screen_elements; j++)
-        if (screen_elements[j]->dirty[tile_num / 8] & (1 << (tile_num % 8))) {
-          screen_elements[j]->fill_tile(x0, y0, tile_pixels);
-        }
+        screen_elements[j]->fill_tile(x0, y0, tile_pixels);
       while (SPI2->SR & SPI_SR_BSY) { }
       lcd_addr(x0, y0, x0 + TILE_S - 1, y0 + TILE_S - 1);
       lcd_dma_busy = true;
