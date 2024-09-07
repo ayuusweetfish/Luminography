@@ -246,7 +246,15 @@ static stereo_sample_t audio_pcm_buf[N_AUDIO_PCM_BUF] = { 0 };
 #define TILE_N (240 / TILE_S)
 static uint8_t tile_pixels[TILE_S * TILE_S * 2];
 
-static bool tile_dirty[TILE_N * TILE_N] = { false };
+typedef struct screen_element {
+  uint8_t dirty[(TILE_N * TILE_N + 7) / 8]; // bit vector
+  void (*update)(struct screen_element *self);
+  void (*fill_tile)(uint32_t x0, uint32_t y0, uint8_t *pixels);
+} screen_element;
+
+static screen_element *screen_elements[16] = { 0 };
+static uint8_t n_screen_elements = 0;
+
 static uint32_t compass_x = 0, compass_y = 0;
 
 static uint32_t screen_c1 = 0x0, screen_c2 = 0x0, screen_c3 = 0x0, screen_c4 = 0x0;
@@ -257,22 +265,46 @@ static uint32_t screen_c1 = 0x0, screen_c2 = 0x0, screen_c3 = 0x0, screen_c4 = 0
   ((uint16_t)((_b) & 0b11111000) <<  5) | \
   ((uint16_t)((_r) & 0b11111000) <<  0) | \
   ((uint16_t)((_g) & 0b11100000) >>  5))
-static void lcd_tile_fill(uint32_t tile_num)
+
+static void outer_ring_update(screen_element *self)
 {
-  uint32_t x0 = tile_num % TILE_N * TILE_S;
-  uint32_t y0 = tile_num / TILE_N * TILE_S;
+  const uint8_t ring_tiles[] = {
+    3, 4, 5, 6, 7, 8, 13, 14, 15, 16, 19, 20, 21, 22, 25, 26, 33, 34, 36, 37, 46, 47, 48, 49, 58, 59, 60, 71, 72, 83, 84, 85, 94, 95, 96, 97, 106, 107, 109, 110, 117, 118, 121, 122, 123, 124, 127, 128, 129, 130, 135, 136, 137, 138, 139, 140,
+  };
+  // XXX: Pack this
+  for (int i = 0; i < sizeof ring_tiles / sizeof ring_tiles[0]; i++) {
+    self->dirty[ring_tiles[i] / 8] |= (1 << (ring_tiles[i] % 8));
+  }
+}
+static void outer_ring_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
+{
   for (int dy = 0; dy < TILE_S; dy++)
     for (int dx = 0; dx < TILE_S; dx++) {
       uint32_t i = (dy * TILE_S + dx) * 2;
       uint32_t x = x0 + dx, y = y0 + dy;
       uint32_t dsq = norm(x * 2 + 1 - 240, y * 2 + 1 - 240);
       if (dsq >= 4 * 106 * 106 && dsq <= 4 * 116 * 116) {
-        tile_pixels[i + 0] = screen_c3;
-        tile_pixels[i + 1] = screen_c4;
+        pixels[i + 0] = screen_c3;
+        pixels[i + 1] = screen_c4;
       } else {
-        tile_pixels[i + 0] = screen_c1;
-        tile_pixels[i + 1] = screen_c2;
+        pixels[i + 0] = screen_c1;
+        pixels[i + 1] = screen_c2;
       }
+    }
+}
+
+static void compass_update(screen_element *self)
+{
+  // TODO
+  outer_ring_update(self);
+  self->dirty[78 / 8] |= (1 << (78 % 8));
+}
+static void compass_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
+{
+  for (int dy = 0; dy < TILE_S; dy++)
+    for (int dx = 0; dx < TILE_S; dx++) {
+      uint32_t i = (dy * TILE_S + dx) * 2;
+      uint32_t x = x0 + dx, y = y0 + dy;
       uint32_t n = norm(x * 256 - compass_x, y * 256 - compass_y);
       if (n < 38 * 256 * 256) {
         *(uint16_t *)(tile_pixels + i) = rgb565(0xff, 0xc0, 0x20);
@@ -281,10 +313,9 @@ static void lcd_tile_fill(uint32_t tile_num)
         uint32_t r = rate * 0xff / 256;
         uint32_t g = rate * 0xc0 / 256;
         uint32_t b = rate * 0x20 / 256;
-        *(uint16_t *)(tile_pixels + i) = rgb565(r, g, b);
+        *(uint16_t *)(pixels + i) = rgb565(r, g, b);
       }
     }
-  lcd_addr(x0, y0, x0 + TILE_S - 1, y0 + TILE_S - 1);
 }
 
 static void lcd_fill(uint8_t byte)
@@ -304,12 +335,27 @@ static void lcd_fill(uint8_t byte)
 }
 
 static volatile bool lcd_dma_busy = false;
-static void lcd_tiles_next(uint32_t tile_num)
+static void lcd_new_frame()
 {
-  while (SPI2->SR & SPI_SR_BSY) { }
-  lcd_tile_fill(tile_num);
-  lcd_dma_busy = true;
-  lcd_data_bulk_dma(tile_pixels, TILE_S * TILE_S * 2);
+  uint8_t dirty[(TILE_N * TILE_N + 7) / 8] = { 0 };
+  for (int i = 0; i < n_screen_elements; i++) {
+    screen_elements[i]->update(screen_elements[i]);
+    for (int j = 0; j < (TILE_N * TILE_N + 7) / 8; j++)
+      dirty[j] |= screen_elements[i]->dirty[j];
+  }
+  for (int tile_num = 0; tile_num < TILE_N * TILE_N; tile_num++)
+    if (dirty[tile_num / 8] & (1 << (tile_num % 8))) {
+      uint32_t x0 = tile_num % TILE_N * TILE_S;
+      uint32_t y0 = tile_num / TILE_N * TILE_S;
+      for (int j = 0; j < n_screen_elements; j++)
+        if (screen_elements[j]->dirty[tile_num / 8] & (1 << (tile_num % 8))) {
+          screen_elements[j]->fill_tile(x0, y0, tile_pixels);
+        }
+      while (SPI2->SR & SPI_SR_BSY) { }
+      lcd_addr(x0, y0, x0 + TILE_S - 1, y0 + TILE_S - 1);
+      lcd_dma_busy = true;
+      lcd_data_bulk_dma(tile_pixels, TILE_S * TILE_S * 2);
+    }
 }
 #pragma GCC pop_options
 
@@ -979,6 +1025,18 @@ int main()
   float m_tfm[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
   vec3 m_cen = (vec3){0, 0, 0};
 
+  screen_element el_outer_ring = {
+    .update = outer_ring_update,
+    .fill_tile = outer_ring_fill_tile,
+  };
+  screen_elements[n_screen_elements++] = &el_outer_ring;
+
+  screen_element el_compass = {
+    .update = compass_update,
+    .fill_tile = compass_fill_tile,
+  };
+  screen_elements[n_screen_elements++] = &el_compass;
+
   while (1) {
     static int count = 0;
 
@@ -993,30 +1051,6 @@ int main()
     }
 
     count++;
-
-    static uint32_t last_screen_refresh = 0, tile = TILE_N * TILE_N;
-    if (HAL_GetTick() / 64 != last_screen_refresh) {
-      last_screen_refresh = HAL_GetTick() / 64;
-      // RGB565
-      if (last_screen_refresh % 8 < 4) {
-        screen_c1 = 0b00000000;
-        screen_c2 = 0b00000000;
-        screen_c3 = 0b00100100;
-        screen_c4 = 0b00001000;
-      } else {
-        screen_c1 = 0b00100001;
-        screen_c2 = 0b00000100;
-        screen_c3 = 0b10000011;
-        screen_c4 = 0b00001000;
-      }
-      tile = 0;
-      // lcd_brightness(last_screen_refresh % 2 == 0 ? 0x0 : 0xff);
-      const uint8_t ring_tiles[] = {
-        3, 4, 5, 6, 7, 8, 13, 14, 15, 16, 19, 20, 21, 22, 25, 26, 33, 34, 36, 37, 46, 47, 48, 49, 58, 59, 60, 71, 72, 83, 84, 85, 94, 95, 96, 97, 106, 107, 109, 110, 117, 118, 121, 122, 123, 124, 127, 128, 129, 130, 135, 136, 137, 138, 139, 140,
-      };
-      for (int i = 0; i < sizeof ring_tiles / sizeof ring_tiles[0]; i++)
-        tile_dirty[ring_tiles[i]] = true;
-    }
 
     read_SDA = _read_SDA_04;
     write_SDA = _write_SDA_04;
@@ -1039,10 +1073,6 @@ int main()
     // mag = vec3_transform(m_tfm, vec3_diff(mag, m_cen));
     mag = vec3_diff(mag, m_cen);
 
-    int16_t a_angle = (int16_t)((atan2f(acc_out[1], acc_out[0]) / M_PI + 1) * 12 + 0.5);
-    a_angle -= 12;
-    if (a_angle < 0) a_angle += 24;
-
     float mag_ampl = sqrtf(norm(mag.x, mag.y));
     compass_x = (uint32_t)(( mag.x / mag_ampl * 100 + 120) * 256);
     compass_y = (uint32_t)((-mag.y / mag_ampl * 100 + 120) * 256);
@@ -1050,7 +1080,7 @@ int main()
     // Lux meters
 
     static uint16_t lx[24] = { 0 };
-    static uint16_t lowest_lx[3] = { 0 };
+    static uint16_t highest_lx[3] = { 0 };
     if (1) {
       read_SDA = _read_SDA;
       write_SDA = _write_SDA;
@@ -1058,13 +1088,13 @@ int main()
       bh1750fvi_readout(0b1011100 << 1, lx + 12);
       // swv_printf("> %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u lx\n", lx[0], lx[1], lx[2], lx[3], lx[4], lx[5], lx[6], lx[7], lx[8], lx[9], lx[10], lx[11]);
       // swv_printf("  %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u %5u lx\n", lx[12], lx[13], lx[14], lx[15], lx[16], lx[17], lx[18], lx[19], lx[20], lx[21], lx[22], lx[23]);
-      for (int i = 0; i < 3; i++) lowest_lx[i] = 0xffff;
+      for (int i = 0; i < 3; i++) highest_lx[i] = 0;
       for (int i = 0, j; i < 24; i++) {
         for (j = 3; j > 0; j--)
-          if (lx[i] >= lowest_lx[j - 1]) break;
+          if (lx[i] <= highest_lx[j - 1]) break;
         if (j < 3) {
-          for (int k = 2; k > j; k--) lowest_lx[k] = lowest_lx[k - 1];
-          lowest_lx[j] = lx[i];
+          for (int k = 2; k > j; k--) highest_lx[k] = highest_lx[k - 1];
+          highest_lx[j] = lx[i];
         }
       }
       // TODO: Try Otsu's method?
@@ -1076,21 +1106,35 @@ int main()
       int index = (17 - i + 24) % 24;
       index = index / 2 + (index % 2) * 12;
       uint16_t value = lx[index];
-      uint32_t th1 = (uint32_t)lowest_lx[2] * 3 / 2;
-      uint32_t th2 = (uint32_t)lowest_lx[2] * 2;
+      uint32_t th1 = (uint32_t)highest_lx[2] / 8;
+      uint32_t th2 = (uint32_t)highest_lx[2] / 2;
       led_data[i] = (value >= th2 ? 0xe1000030 :
         value >= th1 ? 0xe1000410 : 0xe1080000);
     }
-    led_data[a_angle] = 0xe100ffff;
     led_write(led_data, 24);
 
     // HAL_Delay(20);
 
     static uint32_t last_tick = 0;
 
-    if (tile < TILE_N * TILE_N && !lcd_dma_busy)
-      for (int i = 0; i < 32 && tile < TILE_N * TILE_N; tile++)
-        if (tile_dirty[tile]) { lcd_tiles_next(tile); i++; }
+    static uint32_t last_screen_refresh = 0;
+    if (HAL_GetTick() / 64 != last_screen_refresh) {
+      last_screen_refresh = HAL_GetTick() / 64;
+      lcd_new_frame();
+      // RGB565
+      if (1 && last_screen_refresh % 8 < 4) {
+        screen_c1 = 0b00000000;
+        screen_c2 = 0b00000000;
+        screen_c3 = 0b00100100;
+        screen_c4 = 0b00001000;
+      } else {
+        screen_c1 = 0b00100001;
+        screen_c2 = 0b00000100;
+        screen_c3 = 0b10000011;
+        screen_c4 = 0b00001000;
+      }
+      // lcd_brightness(last_screen_refresh % 2 == 0 ? 0x0 : 0xff);
+    }
 
     uint32_t cur_tick = HAL_GetTick();
     if (cur_tick - last_tick >= 20) last_tick = cur_tick;
