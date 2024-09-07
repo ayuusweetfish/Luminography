@@ -244,7 +244,8 @@ static stereo_sample_t audio_pcm_buf[N_AUDIO_PCM_BUF] = { 0 };
 
 static uint8_t tile_pixels[30 * 30 * 2];
 
-static uint32_t compass_x = 120 * 256, compass_y = 120 * 256;
+static bool tile_dirty[64] = { false };
+static uint32_t compass_x = 0, compass_y = 0;
 
 static uint32_t screen_c1 = 0x0, screen_c2 = 0x0, screen_c3 = 0x0, screen_c4 = 0x0;
 #pragma GCC push_options
@@ -1021,6 +1022,9 @@ int main()
       }
       tile = 0;
       // lcd_brightness(last_screen_refresh % 2 == 0 ? 0x0 : 0xff);
+      const uint8_t ring_tiles[] = {1, 2, 3, 4, 5, 6, 8, 9, 10, 13, 14, 15, 16, 17, 22, 23, 24, 31, 32, 39, 40, 41, 46, 47, 48, 49, 50, 53, 54, 55, 57, 58, 59, 60, 61, 62};
+      for (int i = 0; i < sizeof ring_tiles / sizeof ring_tiles[0]; i++)
+        tile_dirty[ring_tiles[i]] = true;
     }
 
     read_SDA = _read_SDA_04;
@@ -1098,13 +1102,8 @@ int main()
     static uint32_t last_tick = 0;
 
     if (tile < 64 && !lcd_dma_busy)
-      for (int i = 0; i < 32; i++) lcd_tiles_next(tile++);
-    if (0 && tile < 64) {
-      tile = 64;
-      static bool parity = 0;
-      parity ^= 1;
-      lcd_fill(parity ? 0xaa : 0x00);
-    }
+      for (int i = 0; i < 32; i++, tile++)
+        if (tile_dirty[tile]) lcd_tiles_next(tile);
 
     uint32_t cur_tick = HAL_GetTick();
     if (cur_tick - last_tick >= 20) last_tick = cur_tick;
