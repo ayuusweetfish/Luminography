@@ -301,4 +301,10 @@ static inline void lcd_addr(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
   lcd_reg(0x2c);
 }
 
+static inline void lcd_brightness(uint8_t b)
+{
+  lcd_reg(0x51);  // Write Display Brightness
+  lcd_data(b);
+}
+
 #pragma GCC pop_options
