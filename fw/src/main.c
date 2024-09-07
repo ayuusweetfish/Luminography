@@ -266,6 +266,7 @@ static uint32_t screen_c3 = 0x0, screen_c4 = 0x0;
   ((uint16_t)((_r) & 0b11111000) <<  0) | \
   ((uint16_t)((_g) & 0b11100000) >>  5))
 
+static uint8_t lx_levels[24] = { 0 };
 static void outer_ring_update(screen_element *restrict self, uint8_t *restrict dirty)
 {
   const uint8_t ring_tiles[] = {
@@ -295,8 +296,8 @@ static void outer_ring_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
           if (yc >= 0) { div = 6; }
           else { div = 0; swap_t = xc; xc = -yc; yc = swap_t; }
         } else {
-          if (yc >= 0) { div = 18; swap_t = xc; xc = yc; yc = -swap_t; }
-          else { div = 12; xc = -xc; yc = -yc; }
+          if (yc >= 0) { div = 12; swap_t = xc; xc = yc; yc = -swap_t; }
+          else { div = 18; xc = -xc; yc = -yc; }
         }
         // (2) Normalise to the first octant
         bool flip = false;
@@ -311,12 +312,14 @@ static void outer_ring_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
 
         div += (flip ? (5 - div3) : div3);
 
-        if ((div & 1) ^ (screen_c3 & 1)) {
-          pixels[i + 0] = screen_c3;
-          pixels[i + 1] = screen_c4;
+        if (lx_levels[div] == 3) {
+          *(uint16_t *)(pixels + i) = rgb565(0xc0, 0x80, 0x20);
+        } else if (lx_levels[div] == 2) {
+          *(uint16_t *)(pixels + i) = rgb565(0x60, 0x40, 0x10);
+        } else if (lx_levels[div] == 1) {
+          *(uint16_t *)(pixels + i) = rgb565(0x20, 0x18, 0x00);
         } else {
-          pixels[i + 0] = 0x00;
-          pixels[i + 1] = 0x00;
+          *(uint16_t *)(pixels + i) = 0x0000;
         }
       } else {
         *(uint16_t *)(pixels + i) = 0x0000;
@@ -1146,14 +1149,23 @@ int main()
       // TODO: Try Otsu's method?
     }
 
+    uint32_t th1 = (uint32_t)highest_lx[2] / 32;
+    uint32_t th2 = (uint32_t)highest_lx[2] / 8;
+    uint32_t th3 = (uint32_t)highest_lx[2] / 2;
+    for (int i = 0; i < 24; i++) {
+      int index = i / 2 + (i % 2) * 12;
+      lx_levels[i] = (
+        lx[index] >= th3 ? 3 :
+        lx[index] >= th2 ? 2 :
+        lx[index] >= th1 ? 1 : 0);
+    }
+
     // Output to LEDs
     uint32_t led_data[24];
     for (int i = 0; i < 24; i++) {
       int index = (17 - i + 24) % 24;
       index = index / 2 + (index % 2) * 12;
       uint16_t value = lx[index];
-      uint32_t th1 = (uint32_t)highest_lx[2] / 8;
-      uint32_t th2 = (uint32_t)highest_lx[2] / 2;
       led_data[i] = (value >= th2 ? 0xe1000030 :
         value >= th1 ? 0xe1000410 : 0xe1080000);
     }
