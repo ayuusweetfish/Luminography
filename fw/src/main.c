@@ -249,7 +249,7 @@ static uint8_t tile_pixels[TILE_S * TILE_S * 2];
 #define TILE_BITS ((TILE_N * TILE_N + 7) / 8)
 typedef struct screen_element {
   void (*update)(struct screen_element *self, uint8_t *dirty);
-  void (*fill_tile)(uint32_t x0, uint32_t y0, uint8_t *pixels);
+  void (*fill_tile)(struct screen_element *self, uint32_t x0, uint32_t y0, uint8_t *pixels);
 } screen_element;
 
 static screen_element *screen_elements[16] = { 0 };
@@ -302,7 +302,7 @@ static void outer_ring_update(screen_element *restrict self, uint8_t *restrict d
     }
   }
 }
-static void outer_ring_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
+static void outer_ring_fill_tile(struct screen_element *self, uint32_t x0, uint32_t y0, uint8_t *pixels)
 {
   for (int dy = 0; dy < TILE_S; dy++)
     for (int dx = 0; dx < TILE_S; dx++) {
@@ -379,7 +379,7 @@ static void compass_update(screen_element *restrict self, uint8_t *restrict dirt
   compass_x_disp = compass_x;
   compass_y_disp = compass_y;
 }
-static void compass_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
+static void compass_fill_tile(struct screen_element *self, uint32_t x0, uint32_t y0, uint8_t *pixels)
 {
   for (int dy = 0; dy < TILE_S; dy++)
     for (int dx = 0; dx < TILE_S; dx++) {
@@ -400,17 +400,64 @@ static void compass_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
 
 typedef struct {
   screen_element _base;
+  uint32_t x, y;
   const char *s;
+  uint8_t last_tiles[TILE_BITS];
 } screen_element_text;
-static void text_update(screen_element *restrict self, uint8_t *restrict dirty)
+static void text_update(screen_element *restrict _self, uint8_t *restrict dirty)
 {
+  screen_element_text *self = (screen_element_text *)_self;
+  for (int i = 0; i < TILE_BITS; i++) dirty[i] |= self->last_tiles[i];
+  // Fill new
+  for (int i = 0; i < TILE_BITS; i++) self->last_tiles[i] = 0;
+  uint32_t x = self->x, y = self->y;
+  for (const char *s = self->s; *s != '\0'; s++) {
+    if (*s == '\n') {
+      y += 15;
+      x = self->x;
+    } else {
+      uint32_t tile_x_min = x / TILE_S;
+      uint32_t tile_x_max = (x + 7) / TILE_S;
+      uint32_t tile_y_min = y / TILE_S;
+      uint32_t tile_y_max = (y + 14) / TILE_S;
+      for (uint32_t y = tile_y_min; y <= tile_y_max; y++)
+        for (uint32_t x = tile_x_min; x <= tile_x_max; x++) {
+          uint32_t tile_num = y * TILE_N + x;
+          self->last_tiles[tile_num / 8] |= (1 << (tile_num % 8));
+        }
+      x += 8;
+    }
+  }
+  // Blit to the main bitmap
+  for (int i = 0; i < TILE_BITS; i++) dirty[i] |= self->last_tiles[i];
 }
-static void text_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
+static void text_fill_tile(struct screen_element *_self, uint32_t x0, uint32_t y0, uint8_t *pixels)
 {
+  screen_element_text *self = (screen_element_text *)_self;
+  uint32_t x = self->x, y = self->y;
+  for (const char *s = self->s; *s != '\0'; s++) {
+    if (*s == '\n') {
+      y += 15;
+      x = self->x;
+    } else {
+      for (int dr = 0; dr < 14; dr++) {
+        int32_t y1 = y + dr - y0;
+        if (y1 < 0 || y1 >= TILE_S) continue;
+        for (int dc = 0; dc < 8; dc++) {
+          int32_t x1 = x + dc - x0;
+          if (x1 < 0 || x1 >= TILE_S) continue;
+          uint32_t i = (y1 * TILE_S + x1) * 2;
+          if ((Tamzen7x14[*s - 32][dr] >> (7 - dc)) & 1)
+            *(uint16_t *)(pixels + i) = rgb565(0xff, 0xff, 0xff);
+        }
+      }
+      x += 8;
+    }
+  }
 }
 static screen_element_text text_create()
 {
-  screen_element_text o;
+  screen_element_text o = { 0 };
   _Static_assert((void *)&o._base == (void *)&o, "Base field reordered");
   o._base.update = &text_update;
   o._base.fill_tile = &text_fill_tile;
@@ -447,7 +494,7 @@ static void lcd_next_tile(uint32_t tile_num)
   uint32_t x0 = tile_num % TILE_N * TILE_S;
   uint32_t y0 = tile_num / TILE_N * TILE_S;
   for (int j = 0; j < n_screen_elements; j++)
-    screen_elements[j]->fill_tile(x0, y0, tile_pixels);
+    screen_elements[j]->fill_tile(screen_elements[j], x0, y0, tile_pixels);
   while (SPI2->SR & SPI_SR_BSY) { }
   lcd_addr(x0, y0, x0 + TILE_S - 1, y0 + TILE_S - 1);
   lcd_dma_busy = true;
@@ -1132,6 +1179,12 @@ int main()
     .fill_tile = compass_fill_tile,
   };
   screen_elements[n_screen_elements++] = &el_compass;
+
+  screen_element_text t = text_create();
+  t.x = 50;
+  t.y = 75;
+  t.s = "test\ntext write 1234567890";
+  screen_elements[n_screen_elements++] = &t;
 
   while (1) {
     static int count = 0;
