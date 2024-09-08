@@ -402,11 +402,13 @@ typedef struct {
   screen_element _base;
   uint32_t x, y;
   const char *s;
+  bool s_changed;
   uint8_t last_tiles[TILE_BITS];
 } screen_element_text;
 static void text_update(screen_element *restrict _self, uint8_t *restrict dirty)
 {
   screen_element_text *self = (screen_element_text *)_self;
+  if (!self->s_changed) return;
   for (int i = 0; i < TILE_BITS; i++) dirty[i] |= self->last_tiles[i];
   // Fill new
   for (int i = 0; i < TILE_BITS; i++) self->last_tiles[i] = 0;
@@ -430,6 +432,7 @@ static void text_update(screen_element *restrict _self, uint8_t *restrict dirty)
   }
   // Blit to the main bitmap
   for (int i = 0; i < TILE_BITS; i++) dirty[i] |= self->last_tiles[i];
+  self->s_changed = false;
 }
 static void text_fill_tile(struct screen_element *_self, uint32_t x0, uint32_t y0, uint8_t *pixels)
 {
@@ -1180,11 +1183,21 @@ int main()
   };
   screen_elements[n_screen_elements++] = &el_compass;
 
-  screen_element_text t = text_create();
-  t.x = 50;
-  t.y = 75;
-  t.s = "test\ntext write 1234567890";
-  screen_elements[n_screen_elements++] = &t;
+  screen_element_text text_bat = text_create();
+  text_bat.x = 50;
+  text_bat.y = 75;
+  screen_elements[n_screen_elements++] = (screen_element *)&text_bat;
+  static char text_bat_s[64];
+  text_bat.s = text_bat_s;
+  snprintf(text_bat_s, sizeof text_bat_s, "test\ntext write 1234567890");
+  text_bat.s_changed = true;
+
+  screen_element_text text_lx = text_create();
+  text_lx.x = 50;
+  text_lx.y = 140;
+  screen_elements[n_screen_elements++] = (screen_element *)&text_lx;
+  static char text_lx_s[64];
+  text_lx.s = text_lx_s;
 
   while (1) {
     static int count = 0;
@@ -1197,6 +1210,10 @@ int main()
       uint32_t vcell = max17049_read_reg(0x02);
       uint32_t soc = max17049_read_reg(0x04);
       swv_printf("VCELL = %u, SOC = %u %u\n", vcell, soc / 256, soc % 256);
+
+      snprintf(text_bat_s, sizeof text_bat_s, "battery\nvoltage %lu\n%3lu.%02lu%%",
+        vcell, soc / 256, soc % 256 * 100 / 256);
+      text_bat.s_changed = true;
     }
 
     count++;
@@ -1263,13 +1280,18 @@ int main()
         lx[index] >= th1 ? 1 : 0);
     }
 
+    snprintf(text_lx_s, sizeof text_lx_s, "max = %lu lx", max_lx);
+    text_lx.s_changed = true;
+
     // Output to LEDs
     uint32_t led_data[24];
     for (int i = 0; i < 24; i++) {
       int index = (17 - i + 24) % 24;
       index = index / 2 + (index % 2) * 12;
       uint16_t value = lx[index];
-      led_data[i] = (value >= th2 ? 0xe1000030 :
+      led_data[i] = (
+        value >= th3 ? 0xe1000030 :
+        value >= th2 ? 0xe1000220 :
         value >= th1 ? 0xe1000410 : 0xe1080000);
     }
     led_write(led_data, 24);
