@@ -1188,6 +1188,7 @@ int main()
   // XXX: Doing this early results in BMI270 initialisation failure??
   entropy_clocks_start();
   entropy_clocks((uint32_t *)entropy_pool, 8);
+  xoshiro128starstar_next((uint32_t *)entropy_pool);
   ((uint32_t *)entropy_pool)[0] ^= *(uint32_t *)(UID_BASE + 0);
   ((uint32_t *)entropy_pool)[1] ^= *(uint32_t *)(UID_BASE + 4);
   ((uint32_t *)entropy_pool)[2] ^= *(uint32_t *)(UID_BASE + 8);
@@ -1197,6 +1198,27 @@ int main()
   ((uint32_t *)entropy_pool)[6] ^= *VREFINT_CAL_ADDR;
   ((uint32_t *)entropy_pool)[7] ^= HAL_GetTick();
   entropy_clocks((uint32_t *)entropy_pool, 8);
+/*
+  uint16_t d[10];
+  for (int i = 0; i < 10; i++) {
+    uint16_t a = TIM16->CCR1;
+    spin_delay(6400 * i);
+    uint16_t b = TIM16->CCR1;
+    d[i] = b - a;
+  }
+  for (int i = 0; i < 10; i++) swv_printf("TIM16 CCR1 %u\n", (unsigned)d[i]);
+
+TIM16 CCR1 0
+TIM16 CCR1 7017
+TIM16 CCR1 12047
+TIM16 CCR1 20074
+TIM16 CCR1 25106
+TIM16 CCR1 32126
+TIM16 CCR1 38146
+TIM16 CCR1 45163
+TIM16 CCR1 51207
+TIM16 CCR1 58227
+*/
   entropy_clocks_stop();
   entropy_pool[0] ^= entropy_pool[3];
   entropy_pool[1] ^= entropy_pool[2];
