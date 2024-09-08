@@ -266,8 +266,12 @@ static uint8_t n_screen_elements = 0;
 
 static uint32_t max_lx = 0;
 static uint8_t lx_levels[24] = { 0 };
+static uint8_t lx_levels_disp[24] = { 0 };
 static void outer_ring_update(screen_element *restrict self, uint8_t *restrict dirty)
 {
+  for (int i = 0; i < 24; i++) {
+    lx_levels_disp[i] = lx_levels[i];
+  }
   static const uint8_t ring_tiles[TILE_BITS] = {
     0b11111000, 0b11100001, 0b01111001, 0b00000110, 0b00110110, 0b11000000, 0b00000011, 0b00011100, 0b10000000, 0b00000001, 0b00111000, 0b11000000, 0b00000011, 0b01101100, 0b01100000, 0b10011110, 0b10000111, 0b00011111
   };
@@ -309,11 +313,11 @@ static void outer_ring_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
 
         div += (flip ? (5 - div3) : div3);
 
-        if (lx_levels[div] == 3) {
+        if (lx_levels_disp[div] == 3) {
           *(uint16_t *)(pixels + i) = rgb565(0xc0, 0x80, 0x20);
-        } else if (lx_levels[div] == 2) {
+        } else if (lx_levels_disp[div] == 2) {
           *(uint16_t *)(pixels + i) = rgb565(0x60, 0x40, 0x10);
-        } else if (lx_levels[div] == 1) {
+        } else if (lx_levels_disp[div] == 1) {
           *(uint16_t *)(pixels + i) = rgb565(0x20, 0x18, 0x00);
         } else {
           *(uint16_t *)(pixels + i) = 0x0000;
@@ -325,10 +329,13 @@ static void outer_ring_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
 }
 
 static uint32_t compass_x = 0, compass_y = 0;
+static uint32_t compass_x_disp = 0, compass_y_disp = 0;
 static void compass_update(screen_element *restrict self, uint8_t *restrict dirty)
 {
-  static uint32_t last_tile_x_min = 0, last_tile_x_max = 0;
-  static uint32_t last_tile_y_min = 0, last_tile_y_max = 0;
+  uint32_t last_tile_x_min = (compass_x_disp / 256 - 7) / TILE_S;
+  uint32_t last_tile_x_max = (compass_x_disp / 256 + 7) / TILE_S;
+  uint32_t last_tile_y_min = (compass_y_disp / 256 - 7) / TILE_S;
+  uint32_t last_tile_y_max = (compass_y_disp / 256 + 7) / TILE_S;
   for (uint32_t y = last_tile_y_min; y <= last_tile_y_max; y++)
     for (uint32_t x = last_tile_x_min; x <= last_tile_x_max; x++) {
       uint32_t tile_num = y * TILE_N + x;
@@ -345,8 +352,8 @@ static void compass_update(screen_element *restrict self, uint8_t *restrict dirt
       dirty[tile_num / 8] |= (1 << (tile_num % 8));
     }
 
-  last_tile_x_min = tile_x_min; last_tile_x_max = tile_x_max;
-  last_tile_y_min = tile_y_min; last_tile_y_max = tile_y_max;
+  compass_x_disp = compass_x;
+  compass_y_disp = compass_y;
 }
 static void compass_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
 {
@@ -354,7 +361,7 @@ static void compass_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
     for (int dx = 0; dx < TILE_S; dx++) {
       uint32_t i = (dy * TILE_S + dx) * 2;
       uint32_t x = x0 + dx, y = y0 + dy;
-      uint32_t n = norm(x * 256 - compass_x, y * 256 - compass_y);
+      uint32_t n = norm(x * 256 - compass_x_disp, y * 256 - compass_y_disp);
       if (n < 38 * 256 * 256) {
         *(uint16_t *)(tile_pixels + i) = rgb565(0xff, 0xc0, 0x20);
       } else if (n < 40 * 256 * 256) {
