@@ -248,7 +248,6 @@ static uint8_t tile_pixels[TILE_S * TILE_S * 2];
 
 #define TILE_BITS ((TILE_N * TILE_N + 7) / 8)
 typedef struct screen_element {
-  uint8_t dirty[TILE_BITS]; // bit vector
   void (*update)(struct screen_element *self, uint8_t *dirty);
   void (*fill_tile)(uint32_t x0, uint32_t y0, uint8_t *pixels);
 } screen_element;
@@ -399,6 +398,25 @@ static void compass_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
     }
 }
 
+typedef struct {
+  screen_element _base;
+  const char *s;
+} screen_element_text;
+static void text_update(screen_element *restrict self, uint8_t *restrict dirty)
+{
+}
+static void text_fill_tile(uint32_t x0, uint32_t y0, uint8_t *pixels)
+{
+}
+static screen_element_text text_create()
+{
+  screen_element_text o;
+  _Static_assert((void *)&o._base == (void *)&o, "Base field reordered");
+  o._base.update = &text_update;
+  o._base.fill_tile = &text_fill_tile;
+  return o;
+}
+
 static void lcd_fill(uint8_t byte)
 {
   lcd_addr(0, 0, 239, 239);
@@ -420,11 +438,8 @@ static uint8_t lcd_dirty[TILE_BITS];
 static void lcd_new_frame()
 {
   for (int i = 0; i < TILE_BITS; i++) lcd_dirty[i] = 0;
-  for (int i = 0; i < n_screen_elements; i++) {
+  for (int i = 0; i < n_screen_elements; i++)
     screen_elements[i]->update(screen_elements[i], lcd_dirty);
-    for (int j = 0; j < TILE_BITS; j++)
-      lcd_dirty[j] |= screen_elements[i]->dirty[j];
-  }
 }
 static void lcd_next_tile(uint32_t tile_num)
 {
