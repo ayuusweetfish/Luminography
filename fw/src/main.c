@@ -889,8 +889,141 @@ if (0)
     gyr_out[0], gyr_out[1], gyr_out[2]);
 }
 
+static inline void sleep_delay(uint32_t ticks)
+{
+  uint32_t t0 = HAL_GetTick();
+  while (HAL_GetTick() - t0 < ticks) {
+    HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);
+  }
+}
+
+static inline void spin_delay(uint32_t cycles)
+{
+  // GCC (10.3.1 xPack) gives extraneous `cmp r0, #0`??
+  // for (cycles = (cycles - 5) / 4; cycles > 0; cycles--) asm volatile ("");
+  __asm__ volatile (
+    "   cmp %[cycles], #5\n"
+    "   ble 2f\n"
+    "   sub %[cycles], #5\n"
+    "   lsr %[cycles], #2\n"
+    "1: sub %[cycles], #1\n"
+    "   nop\n"
+    "   bne 1b\n"   // 2 cycles if taken
+    "2: \n"
+    : [cycles] "+l" (cycles)
+    : // No output
+    : "cc"
+  );
+}
+
+// Entropy from HSx-LSI ratio
+
+static TIM_HandleTypeDef tim16;
+static inline void entropy_clocks_start()
+{
+  HAL_RCC_OscConfig(&(RCC_OscInitTypeDef){
+    .OscillatorType = RCC_OSCILLATORTYPE_LSI,
+    .LSIState = RCC_LSI_ON,
+  });
+
+  __HAL_RCC_TIM16_CLK_ENABLE();
+  tim16 = (TIM_HandleTypeDef){
+    .Instance = TIM16,
+    .Init = {
+      .Prescaler = 1 - 1,
+      .CounterMode = TIM_COUNTERMODE_UP,
+      .Period = 65536 - 1,
+      .ClockDivision = TIM_CLOCKDIVISION_DIV1,
+      .RepetitionCounter = 0,
+    },
+  };
+  HAL_TIM_IC_Init(&tim16);
+
+  TIM_ClockConfigTypeDef tim16_cfg_ti1 = {
+    .ClockSource = TIM_CLOCKSOURCE_TI1,
+    .ClockPolarity = TIM_CLOCKPOLARITY_RISING,
+    .ClockPrescaler = TIM_CLOCKPRESCALER_DIV1,
+    .ClockFilter = 0,
+  };
+  HAL_TIM_ConfigClockSource(&tim16, &tim16_cfg_ti1);
+  HAL_TIMEx_TISelection(&tim16, TIM_TIM16_TI1_LSI, TIM_CHANNEL_1);
+
+  HAL_TIM_IC_ConfigChannel(&tim16, &(TIM_IC_InitTypeDef){
+    .ICPolarity = TIM_ICPOLARITY_BOTHEDGE,
+    .ICSelection = TIM_ICSELECTION_DIRECTTI,
+    .ICPrescaler = TIM_ICPSC_DIV1,
+    .ICFilter = 0,
+  }, TIM_CHANNEL_1);
+  HAL_TIM_IC_Start(&tim16, TIM_CHANNEL_1);
+}
+
+static inline void entropy_clocks_stop()
+{
+  // Stop timer and restore clock source to SYSCLK
+  HAL_TIM_IC_Stop(&tim16, TIM_CHANNEL_1);
+  HAL_TIM_IC_DeInit(&tim16);
+  TIM_ClockConfigTypeDef tim16_cfg_int = {
+    .ClockSource = TIM_CLOCKSOURCE_INTERNAL,
+    .ClockPolarity = TIM_CLOCKPOLARITY_RISING,
+    .ClockPrescaler = TIM_CLOCKPRESCALER_DIV1,
+    .ClockFilter = 0,
+  };
+  HAL_TIM_ConfigClockSource(&tim16, &tim16_cfg_int);
+  __HAL_RCC_TIM16_CLK_DISABLE();
+
+  HAL_RCC_OscConfig(&(RCC_OscInitTypeDef){
+    .OscillatorType = RCC_OSCILLATORTYPE_LSI,
+    .LSIState = RCC_LSI_OFF,
+  });
+}
+
+#pragma GCC push_options
+#pragma GCC optimize("O3")
+static inline void entropy_clocks(uint32_t *_s, int n)
+{
+  uint16_t *s = (uint16_t *)_s;
+  for (int i = 0; i < n * 2; i++) {
+    uint16_t last0 = (i == 0 ? s[n - 1] : s[i - 1]);
+    uint16_t last1 = (i == 0 ? s[n - 2] : i == 1 ? s[n - 1] : s[i - 2]);
+    int ops = 200 + (((last0 << 4) ^ ((uint32_t)(last0 >> 8) * last1)) & 0x7ff);
+    spin_delay(ops);
+    s[i] += TIM16->CCR1;
+  }
+}
+#pragma GCC pop_options
+
+static inline uint32_t rotl32(const uint32_t x, int k) {
+  return (x << k) | (x >> (32 - k));
+}
+static inline uint32_t xoshiro128starstar_next(uint32_t s[4])
+{
+  const uint32_t result = rotl32(s[1] * 5, 7) * 9;
+
+  const uint32_t t = s[1] << 9;
+
+  s[2] ^= s[0];
+  s[3] ^= s[1];
+  s[1] ^= s[2];
+  s[0] ^= s[3];
+
+  s[2] ^= t;
+
+  s[3] = rotl32(s[3], 11);
+
+  return result;
+}
+
 int main()
 {
+  // Entropy from randomly initialised memory
+  uint64_t entropy_pool[4] = { 0 };
+  for (uint64_t *p = (uint64_t *)0x20000000; p < (uint64_t *)0x20002000; p++) {
+    entropy_pool[0] = entropy_pool[0] ^ *p;
+    entropy_pool[1] = (entropy_pool[1] * 17) ^ ((uint64_t)(uint32_t)p + *p);
+    if (__builtin_parity((uint32_t)p)) entropy_pool[3] += *p;
+    else entropy_pool[2] += entropy_pool[1];
+  }
+
   HAL_Init();
 
   // ======== GPIO ========
@@ -973,9 +1106,10 @@ int main()
 
   read_SDA = _read_SDA_04;
   write_SDA = _write_SDA_04;
-  i2c_init();
 
   while (1) {
+    i2c_init();
+
     uint8_t chip_id = bmi270_read_reg(0x00);
     swv_printf("BMI270 chip ID = 0x%02x, I2C err = %u, line = %d\n",
       (int)chip_id, i2c_err, i2c_first_err_line);
@@ -1049,6 +1183,24 @@ int main()
   i2c_init();
   bh1750fvi_readout_start(0b0100011 << 1);
   bh1750fvi_readout_start(0b1011100 << 1);
+
+  // Random entropy
+  // XXX: Doing this early results in BMI270 initialisation failure??
+  entropy_clocks_start();
+  entropy_clocks((uint32_t *)entropy_pool, 8);
+  ((uint32_t *)entropy_pool)[0] ^= *(uint32_t *)(UID_BASE + 0);
+  ((uint32_t *)entropy_pool)[1] ^= *(uint32_t *)(UID_BASE + 4);
+  ((uint32_t *)entropy_pool)[2] ^= *(uint32_t *)(UID_BASE + 8);
+  ((uint32_t *)entropy_pool)[3] ^= LL_RCC_HSI_GetCalibration();
+  ((uint32_t *)entropy_pool)[4] ^= *TEMPSENSOR_CAL1_ADDR;
+  ((uint32_t *)entropy_pool)[5] ^= *TEMPSENSOR_CAL2_ADDR;
+  ((uint32_t *)entropy_pool)[6] ^= *VREFINT_CAL_ADDR;
+  ((uint32_t *)entropy_pool)[7] ^= HAL_GetTick();
+  entropy_clocks((uint32_t *)entropy_pool, 8);
+  entropy_clocks_stop();
+  entropy_pool[0] ^= entropy_pool[3];
+  entropy_pool[1] ^= entropy_pool[2];
+  xoshiro128starstar_next((uint32_t *)entropy_pool);
 
   // LCD_RSTN (PB6), LCD_BL (PB4), LCD_DC (PB5), LCD_CS (PB9)
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
@@ -1189,7 +1341,12 @@ int main()
   screen_elements[n_screen_elements++] = (screen_element *)&text_bat;
   static char text_bat_s[64];
   text_bat.s = text_bat_s;
-  snprintf(text_bat_s, sizeof text_bat_s, "test\ntext write 1234567890");
+  snprintf(text_bat_s, sizeof text_bat_s, "test text write\n%08lx %08lx\n%08lx %08lx",
+    ((uint32_t *)entropy_pool)[0],
+    ((uint32_t *)entropy_pool)[1],
+    ((uint32_t *)entropy_pool)[2],
+    ((uint32_t *)entropy_pool)[3]
+  );
   text_bat.s_changed = true;
 
   screen_element_text text_lx = text_create();
@@ -1211,8 +1368,8 @@ int main()
       uint32_t soc = max17049_read_reg(0x04);
       swv_printf("VCELL = %u, SOC = %u %u\n", vcell, soc / 256, soc % 256);
 
-      snprintf(text_bat_s, sizeof text_bat_s, "battery\nvoltage %lu\n%3lu.%02lu%%",
-        vcell, soc / 256, soc % 256 * 100 / 256);
+      snprintf(text_bat_s, sizeof text_bat_s, "battery\nvoltage %lu mV\n%3lu.%02lu%%",
+        vcell * 5 / 64, soc / 256, soc % 256 * 100 / 256);
       text_bat.s_changed = true;
     }
 
