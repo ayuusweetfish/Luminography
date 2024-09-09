@@ -352,50 +352,63 @@ static void outer_ring_fill_tile(struct screen_element *self, uint32_t x0, uint3
     }
 }
 
-static uint32_t compass_x = 0, compass_y = 0;
-static uint32_t compass_x_disp = 0, compass_y_disp = 0;
-static void compass_update(screen_element *restrict self, uint8_t *restrict dirty)
+typedef struct {
+  screen_element _base;
+  uint32_t x, y, r;   // in 24.8 fixed point
+  uint32_t rsq, irsq; // in 24.8 fixed point, squared radius / inner radius
+  uint32_t x_disp, y_disp;
+  uint16_t stroke, fill;
+} screen_element_circle;
+static void circle_update(screen_element *restrict _self, uint8_t *restrict dirty)
 {
-  uint32_t last_tile_x_min = (compass_x_disp / 256 - 7) / TILE_S;
-  uint32_t last_tile_x_max = (compass_x_disp / 256 + 7) / TILE_S;
-  uint32_t last_tile_y_min = (compass_y_disp / 256 - 7) / TILE_S;
-  uint32_t last_tile_y_max = (compass_y_disp / 256 + 7) / TILE_S;
+  screen_element_circle *self = (screen_element_circle *)_self;
+  if (self->x_disp == self->x && self->y_disp == self->y) return;
+
+  uint32_t last_tile_x_min = (self->x_disp - self->r) / (256 * TILE_S);
+  uint32_t last_tile_x_max = (self->x_disp + self->r) / (256 * TILE_S);
+  uint32_t last_tile_y_min = (self->y_disp - self->r) / (256 * TILE_S);
+  uint32_t last_tile_y_max = (self->y_disp + self->r) / (256 * TILE_S);
   for (uint32_t y = last_tile_y_min; y <= last_tile_y_max; y++)
     for (uint32_t x = last_tile_x_min; x <= last_tile_x_max; x++) {
       uint32_t tile_num = y * TILE_N + x;
       dirty[tile_num / 8] |= (1 << (tile_num % 8));
     }
 
-  uint32_t tile_x_min = (compass_x / 256 - 7) / TILE_S;
-  uint32_t tile_x_max = (compass_x / 256 + 7) / TILE_S;
-  uint32_t tile_y_min = (compass_y / 256 - 7) / TILE_S;
-  uint32_t tile_y_max = (compass_y / 256 + 7) / TILE_S;
+  uint32_t tile_x_min = (self->x - self->r) / (256 * TILE_S);
+  uint32_t tile_x_max = (self->x + self->r) / (256 * TILE_S);
+  uint32_t tile_y_min = (self->y - self->r) / (256 * TILE_S);
+  uint32_t tile_y_max = (self->y + self->r) / (256 * TILE_S);
   for (uint32_t y = tile_y_min; y <= tile_y_max; y++)
     for (uint32_t x = tile_x_min; x <= tile_x_max; x++) {
       uint32_t tile_num = y * TILE_N + x;
       dirty[tile_num / 8] |= (1 << (tile_num % 8));
     }
 
-  compass_x_disp = compass_x;
-  compass_y_disp = compass_y;
+  self->x_disp = self->x;
+  self->y_disp = self->y;
 }
-static void compass_fill_tile(struct screen_element *self, uint32_t x0, uint32_t y0, uint8_t *pixels)
+static void circle_fill_tile(struct screen_element *_self, uint32_t x0, uint32_t y0, uint8_t *pixels)
 {
+  screen_element_circle *self = (screen_element_circle *)_self;
+
   for (int dy = 0; dy < TILE_S; dy++)
     for (int dx = 0; dx < TILE_S; dx++) {
       uint32_t i = (dy * TILE_S + dx) * 2;
       uint32_t x = x0 + dx, y = y0 + dy;
-      uint32_t n = norm(x * 256 - compass_x_disp, y * 256 - compass_y_disp);
-      if (n < 38 * 256 * 256) {
-        *(uint16_t *)(tile_pixels + i) = rgb565(0xff, 0xc0, 0x20);
-      } else if (n < 40 * 256 * 256) {
-        uint32_t rate = (n - 35 * 256 * 256) / (5 * 256);
-        uint32_t r = rate * 0xff / 256;
-        uint32_t g = rate * 0xc0 / 256;
-        uint32_t b = rate * 0x20 / 256;
-        *(uint16_t *)(pixels + i) = rgb565(r, g, b);
+      uint32_t n = norm(x * 256 - self->x_disp, y * 256 - self->y_disp);
+      if (n < self->rsq) {
+        *(uint16_t *)(tile_pixels + i) =
+          (n >= self->irsq ? self->stroke : self->fill);
       }
     }
+}
+static screen_element_circle circle_create()
+{
+  screen_element_circle o = { 0 };
+  _Static_assert((void *)&o._base == (void *)&o, "Base field reordered");
+  o._base.update = &circle_update;
+  o._base.fill_tile = &circle_fill_tile;
+  return o;
 }
 
 typedef struct {
@@ -1451,11 +1464,11 @@ int main()
   };
   screen_elements[n_screen_elements++] = &el_outer_ring;
 
-  screen_element el_compass = {
-    .update = compass_update,
-    .fill_tile = compass_fill_tile,
-  };
-  screen_elements[n_screen_elements++] = &el_compass;
+  screen_element_circle el_compass = circle_create();
+  el_compass.rsq = 40 * 256 * 256;
+  el_compass.r = 1620;  // sqrt(rsq)
+  el_compass.stroke = rgb565(0xff, 0x60, 0x30);
+  screen_elements[n_screen_elements++] = (screen_element *)&el_compass;
 
   screen_element_text text_bat = text_create();
   text_bat.x = 50;
@@ -1484,6 +1497,20 @@ int main()
     cur_quest.dots[1].pos, cur_quest.dots[1].type,
     cur_quest.dots[2].pos, cur_quest.dots[2].type
   );
+
+  screen_element_circle el_circle[3];
+  for (int i = 0; i < 3; i++) {
+    el_circle[i] = circle_create();
+    el_circle[i].rsq = 40 * 256 * 256;
+    el_circle[i].irsq = 27 * 256 * 256;
+    el_circle[i].r = 1620;  // sqrt(rsq)
+    el_circle[i].stroke = rgb565(0xff, 0xc0, 0x20);
+    el_circle[i].fill = (cur_quest.dots[i].type == 1 ?
+      rgb565(0x40, 0x28, 0x10) : rgb565(0xc0, 0x90, 0x1c));
+    el_circle[i].x = (uint32_t)((120 + cosf((float)M_PI / 12 * (cur_quest.dots[i].pos - 5.5)) * 111) * 256);
+    el_circle[i].y = (uint32_t)((120 + sinf((float)M_PI / 12 * (cur_quest.dots[i].pos - 5.5)) * 111) * 256);
+    screen_elements[n_screen_elements++] = (screen_element *)&el_circle[i];
+  }
 
   while (1) {
     static int count = 0;
@@ -1526,8 +1553,8 @@ int main()
     mag = vec3_diff(mag, m_cen);
 
     float mag_ampl = sqrtf(norm(mag.x, mag.y));
-    compass_x = (uint32_t)(( mag.x / mag_ampl * 100 + 120) * 256);
-    compass_y = (uint32_t)((-mag.y / mag_ampl * 100 + 120) * 256);
+    el_compass.x = (uint32_t)(( mag.x / mag_ampl * 100 + 120) * 256);
+    el_compass.y = (uint32_t)((-mag.y / mag_ampl * 100 + 120) * 256);
 
     // Lux meters
 
