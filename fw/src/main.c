@@ -916,6 +916,61 @@ static inline void spin_delay(uint32_t cycles)
   );
 }
 
+// Entropy from ADC
+
+// Requires `n` to be even
+// Also mixes in TIM16, if it is enabled
+static inline void entropy_adc(uint32_t *out_v, int n)
+{
+  ADC_HandleTypeDef adc1 = { 0 };
+
+  __HAL_RCC_ADC_CLK_ENABLE();
+  adc1.Instance = ADC1;
+  adc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  adc1.Init.Resolution = ADC_RESOLUTION_12B;
+  adc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  adc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  adc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  adc1.Init.LowPowerAutoWait = DISABLE;
+  adc1.Init.LowPowerAutoPowerOff = ENABLE;
+  adc1.Init.ContinuousConvMode = DISABLE;
+  adc1.Init.NbrOfConversion = 1;
+  adc1.Init.DiscontinuousConvMode = DISABLE;
+  adc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  adc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_LOW;
+  HAL_ADC_Init(&adc1);
+
+  ADC_ChannelConfTypeDef adc_ch13;
+  adc_ch13.Channel = ADC_CHANNEL_VREFINT;
+  adc_ch13.Rank = ADC_REGULAR_RANK_1;
+  adc_ch13.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+
+  ADC_ChannelConfTypeDef adc_ch_temp;
+  adc_ch_temp.Channel = ADC_CHANNEL_TEMPSENSOR;
+  adc_ch_temp.Rank = ADC_REGULAR_RANK_1;
+  adc_ch_temp.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+
+  // 1000 samples takes 167 ms
+  for (int ch = 0; ch <= 1; ch++) {
+    if (ch == 0) HAL_ADC_ConfigChannel(&adc1, &adc_ch13);
+    else HAL_ADC_ConfigChannel(&adc1, &adc_ch_temp);
+    uint32_t v = 0;
+    for (int i = 0; i < n * 2; i++) {
+      HAL_ADC_Start(&adc1);
+      HAL_ADC_PollForConversion(&adc1, 1000);
+      uint32_t adc_value = HAL_ADC_GetValue(&adc1);
+      // ADC has independent clock, but timer lowest bit does not seem to change?
+      uint32_t tim_cnt = (TIM16->CNT >> 1) ^ (TIM16->CCR1 << 4);
+      v = (v << 8) | ((adc_value ^ (tim_cnt << 2) ^ (tim_cnt >> 2)) & 0xff);
+      if (i % 4 == 3) out_v[i / 4 * 2 + ch] ^= v;
+    }
+  }
+  HAL_ADC_Stop(&adc1);
+
+  HAL_ADC_DeInit(&adc1);
+  __HAL_RCC_ADC_CLK_DISABLE();
+}
+
 // Entropy from HSx-LSI ratio
 
 static TIM_HandleTypeDef tim16;
@@ -979,21 +1034,27 @@ static inline void entropy_clocks_stop()
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
-static inline void entropy_clocks(uint32_t *_s, int n)
+static inline void entropy_jitter(uint32_t *_s, int n)
 {
   uint16_t *s = (uint16_t *)_s;
   uint16_t capt = TIM16->CCR1;
+  uint16_t acc = s[n * 2 - 2] ^ s[n * 2 - 1];
   s[n * 2 - 2] ^= capt;
   s[n * 2 - 1] ^= TIM16->CNT;
   for (int i = 0; i < n * 2; i++) {
-    uint16_t new_capt;
-    while ((new_capt = TIM16->CCR1) == capt) { }
-    s[i] = (s[i] << 7) | (s[i] >> 9);
-    s[i] += new_capt;
+    for (int j = (acc >> 3) & 3; j >= 0; j--) {
+      uint16_t new_capt;
+      while ((new_capt = TIM16->CCR1) == capt) { }
+      s[i] = (s[i] << 7) | (s[i] >> 9);
+      s[i] += new_capt;
+    }
+    acc += s[i];
   }
 }
 #pragma GCC pop_options
 
+#pragma GCC push_options
+#pragma GCC optimize("O3")
 static inline uint32_t rotl32(const uint32_t x, int k) {
   return (x << k) | (x >> (32 - k));
 }
@@ -1015,16 +1076,68 @@ static inline uint32_t xoshiro128starstar_next(uint32_t s[4])
   return result;
 }
 
+static inline uint32_t rand_int(uint32_t s[4], uint32_t n)
+{
+  // a = function (n) if 0xffffffff % n == (n - 1) then return 0xffffffff else return 0xfffffffe - (0xffffffff % n) end end
+  // b = function (n) return 0x100000000 - 0x100000000 % n - 1 end
+  // for i = 1, 100 do print(string.format("%3d %08x", i, a(i))) end
+  uint32_t lim = (
+    0xffffffff % n == (n - 1) ? 0xffffffff :
+    0xfffffffe - (0xffffffff % n));
+  uint32_t x;
+  for (int i = 0; i < 100; i++) {
+    x = xoshiro128starstar_next(s);
+    if (x <= lim) break;
+  }
+  return x % n;
+}
+
+struct quest_dot {
+  uint8_t pos;
+  uint8_t type;
+};
+struct quest {
+  struct quest_dot dots[3];
+};
+static inline struct quest rand_quest(uint32_t s[4])
+{
+  // uint32_t n = rand_int(51); // Too smart, too cumbersome
+  // Expect 2 throws
+  uint32_t x, y;
+  do {
+    x = 3 + rand_int(s, 6);   // [3, 8]
+    y = 3 + rand_int(s, 16);  // [3, 18]
+  } while (!(y >= x && y <= 24 - x * 2));
+  uint32_t parity = rand_int(s, 2);
+  uint32_t offset = rand_int(s, 24);
+  return (struct quest){ .dots = {
+    {(offset + 0) % 24, parity},
+    {(offset + x) % 24, parity ^ 1},
+    {(offset + x + y) % 24, parity},
+  } };
+}
+#pragma GCC pop_options
+
 int main()
 {
   // Entropy from randomly initialised memory
-  uint64_t entropy_pool[4] = { 0 };
+  uint64_t mem1 = 0, mem2 = 0, mem3 = 0, mem4 = 0;
   for (uint64_t *p = (uint64_t *)0x20000000; p < (uint64_t *)0x20002000; p++) {
-    entropy_pool[0] = entropy_pool[0] ^ *p;
-    entropy_pool[1] = (entropy_pool[1] * 17) ^ ((uint64_t)(uint32_t)p + *p);
-    if (__builtin_parity((uint32_t)p)) entropy_pool[3] += *p;
-    else entropy_pool[2] += entropy_pool[1];
+    mem1 = mem1 ^ *p;
+    mem2 = (mem2 * 17) ^ ((uint64_t)(uint32_t)p + *p);
+    if (__builtin_parity((uint32_t)p)) mem4 += *p;
+    else mem3 += mem2;
   }
+  uint32_t entropy_pool[8] = {
+    (uint32_t)(mem1 >> 32),
+    (uint32_t)(mem1 >>  0),
+    (uint32_t)(mem2 >> 32),
+    (uint32_t)(mem2 >>  0),
+    (uint32_t)(mem3 >> 32),
+    (uint32_t)(mem3 >>  0),
+    (uint32_t)(mem4 >> 32),
+    (uint32_t)(mem4 >>  0),
+  };
 
   HAL_Init();
 
@@ -1063,6 +1176,9 @@ int main()
     .Pin = GPIO_PIN_13,
     .Mode = GPIO_MODE_INPUT,
   });
+
+  // Start timer early for extra bits of unpredictability
+  entropy_clocks_start();
 
   // LSH_OE (PA4), LED_CLK (PA7), LED_DATA (PA5)
   HAL_GPIO_Init(GPIOA, &(GPIO_InitTypeDef){
@@ -1188,43 +1304,25 @@ int main()
 
   // Random entropy
   // XXX: Doing this early results in BMI270 initialisation failure??
-  entropy_clocks_start();
-  entropy_clocks((uint32_t *)entropy_pool, 8);
-  xoshiro128starstar_next((uint32_t *)entropy_pool);
-  ((uint32_t *)entropy_pool)[0] ^= *(uint32_t *)(UID_BASE + 0);
-  ((uint32_t *)entropy_pool)[1] ^= *(uint32_t *)(UID_BASE + 4);
-  ((uint32_t *)entropy_pool)[2] ^= *(uint32_t *)(UID_BASE + 8);
-  ((uint32_t *)entropy_pool)[3] ^= LL_RCC_HSI_GetCalibration();
-  ((uint32_t *)entropy_pool)[4] ^= *TEMPSENSOR_CAL1_ADDR;
-  ((uint32_t *)entropy_pool)[5] ^= *TEMPSENSOR_CAL2_ADDR;
-  ((uint32_t *)entropy_pool)[6] ^= *VREFINT_CAL_ADDR;
-  ((uint32_t *)entropy_pool)[7] ^= HAL_GetTick();
-  entropy_clocks((uint32_t *)entropy_pool, 8);
-/*
-  uint16_t d[10];
-  for (int i = 0; i < 10; i++) {
-    uint16_t a = TIM16->CCR1;
-    spin_delay(6400 * i);
-    uint16_t b = TIM16->CCR1;
-    d[i] = b - a;
-  }
-  for (int i = 0; i < 10; i++) swv_printf("TIM16 CCR1 %u\n", (unsigned)d[i]);
-
-TIM16 CCR1 0
-TIM16 CCR1 7017
-TIM16 CCR1 12047
-TIM16 CCR1 20074
-TIM16 CCR1 25106
-TIM16 CCR1 32126
-TIM16 CCR1 38146
-TIM16 CCR1 45163
-TIM16 CCR1 51207
-TIM16 CCR1 58227
-*/
+  entropy_adc(entropy_pool, 8);
+  entropy_jitter(entropy_pool, 8);
+  entropy_pool[0] ^= entropy_pool[7];
+  entropy_pool[1] ^= entropy_pool[6];
+  entropy_pool[2] ^= entropy_pool[5];
+  entropy_pool[3] ^= entropy_pool[4];
+  xoshiro128starstar_next(entropy_pool);
+  entropy_pool[0] ^= *(uint32_t *)(UID_BASE + 0);
+  entropy_pool[1] ^= *(uint32_t *)(UID_BASE + 4);
+  entropy_pool[2] ^= *(uint32_t *)(UID_BASE + 8);
+  entropy_pool[3] ^= LL_RCC_HSI_GetCalibration();
+  entropy_pool[4] ^= *TEMPSENSOR_CAL1_ADDR;
+  entropy_pool[5] ^= *TEMPSENSOR_CAL2_ADDR;
+  entropy_pool[6] ^= *VREFINT_CAL_ADDR;
+  entropy_pool[7] ^= HAL_GetTick();
+  entropy_adc(entropy_pool, 8);
+  entropy_jitter(entropy_pool, 8);
   entropy_clocks_stop();
-  entropy_pool[0] ^= entropy_pool[3];
-  entropy_pool[1] ^= entropy_pool[2];
-  xoshiro128starstar_next((uint32_t *)entropy_pool);
+  xoshiro128starstar_next(entropy_pool);
 
   // LCD_RSTN (PB6), LCD_BL (PB4), LCD_DC (PB5), LCD_CS (PB9)
   HAL_GPIO_Init(GPIOB, &(GPIO_InitTypeDef){
@@ -1366,10 +1464,10 @@ TIM16 CCR1 58227
   static char text_bat_s[64];
   text_bat.s = text_bat_s;
   snprintf(text_bat_s, sizeof text_bat_s, "test text write\n%08lx %08lx\n%08lx %08lx",
-    ((uint32_t *)entropy_pool)[0],
-    ((uint32_t *)entropy_pool)[1],
-    ((uint32_t *)entropy_pool)[2],
-    ((uint32_t *)entropy_pool)[3]
+    entropy_pool[0],
+    entropy_pool[1],
+    entropy_pool[2],
+    entropy_pool[3]
   );
   text_bat.s_changed = true;
 
@@ -1379,6 +1477,13 @@ TIM16 CCR1 58227
   screen_elements[n_screen_elements++] = (screen_element *)&text_lx;
   static char text_lx_s[64];
   text_lx.s = text_lx_s;
+
+  struct quest cur_quest = rand_quest(entropy_pool);
+  swv_printf("%u %u | %u %u | %u %u\n",
+    cur_quest.dots[0].pos, cur_quest.dots[0].type,
+    cur_quest.dots[1].pos, cur_quest.dots[1].type,
+    cur_quest.dots[2].pos, cur_quest.dots[2].type
+  );
 
   while (1) {
     static int count = 0;
