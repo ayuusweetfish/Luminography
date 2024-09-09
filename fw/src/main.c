@@ -982,12 +982,14 @@ static inline void entropy_clocks_stop()
 static inline void entropy_clocks(uint32_t *_s, int n)
 {
   uint16_t *s = (uint16_t *)_s;
+  uint16_t capt = TIM16->CCR1;
+  s[n * 2 - 2] ^= capt;
+  s[n * 2 - 1] ^= TIM16->CNT;
   for (int i = 0; i < n * 2; i++) {
-    uint16_t last0 = (i == 0 ? s[n - 1] : s[i - 1]);
-    uint16_t last1 = (i == 0 ? s[n - 2] : i == 1 ? s[n - 1] : s[i - 2]);
-    int ops = 200 + (((last0 << 4) ^ ((uint32_t)(last0 >> 8) * last1)) & 0x7ff);
-    spin_delay(ops);
-    s[i] += TIM16->CCR1;
+    uint16_t new_capt;
+    while ((new_capt = TIM16->CCR1) == capt) { }
+    s[i] = (s[i] << 7) | (s[i] >> 9);
+    s[i] += new_capt;
   }
 }
 #pragma GCC pop_options
