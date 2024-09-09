@@ -1603,10 +1603,16 @@ int main()
       index = index / 2 + (index % 2) * 12;
       uint16_t value = lx[index];
       led_data[i] = (
-        value >= th3 ? 0xe1000030 :
-        value >= th2 ? 0xe1000220 :
-        value >= th1 ? 0xe1000410 : 0xe1080000);
+        value >= th3 ? 0xe1000102 :
+        value >= th2 ? 0xe1010001 :
+        value >= th1 ? 0xe1000000 : 0xe1000000);
     }
+
+    for (int i = 0; i < 3; i++) {
+      led_data[(17 - cur_quest.dots[i].pos + 24) % 24] =
+        (cur_quest.dots[i].type == 1 ? 0xe1000c60 : 0xe1600008);
+    }
+
     led_write(led_data, 24);
 
     static uint32_t last_tick = 0;
