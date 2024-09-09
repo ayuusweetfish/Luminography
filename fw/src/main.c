@@ -358,11 +358,12 @@ typedef struct {
   uint32_t rsq, irsq; // in 24.8 fixed point, squared radius / inner radius
   uint32_t x_disp, y_disp;
   uint16_t stroke, fill;
+  bool manually_updated;
 } screen_element_circle;
 static void circle_update(screen_element *restrict _self, uint8_t *restrict dirty)
 {
   screen_element_circle *self = (screen_element_circle *)_self;
-  if (self->x_disp == self->x && self->y_disp == self->y) return;
+  if (self->x_disp == self->x && self->y_disp == self->y && !self->manually_updated) return;
 
   uint32_t last_tile_x_min = (self->x_disp - self->r) / (256 * TILE_S);
   uint32_t last_tile_x_max = (self->x_disp + self->r) / (256 * TILE_S);
@@ -386,6 +387,7 @@ static void circle_update(screen_element *restrict _self, uint8_t *restrict dirt
 
   self->x_disp = self->x;
   self->y_disp = self->y;
+  self->manually_updated = false;
 }
 static void circle_fill_tile(struct screen_element *_self, uint32_t x0, uint32_t y0, uint8_t *pixels)
 {
@@ -1491,29 +1493,40 @@ int main()
   static char text_lx_s[64];
   text_lx.s = text_lx_s;
 
-  struct quest cur_quest = rand_quest(entropy_pool);
-  swv_printf("%u %u | %u %u | %u %u\n",
-    cur_quest.dots[0].pos, cur_quest.dots[0].type,
-    cur_quest.dots[1].pos, cur_quest.dots[1].type,
-    cur_quest.dots[2].pos, cur_quest.dots[2].type
-  );
-
+  struct quest cur_quest;
   screen_element_circle el_circle[3];
   for (int i = 0; i < 3; i++) {
     el_circle[i] = circle_create();
     el_circle[i].rsq = 40 * 256 * 256;
     el_circle[i].irsq = 27 * 256 * 256;
     el_circle[i].r = 1620;  // sqrt(rsq)
-    el_circle[i].stroke = rgb565(0xff, 0xc0, 0x20);
-    el_circle[i].fill = (cur_quest.dots[i].type == 1 ?
-      rgb565(0x40, 0x28, 0x10) : rgb565(0xc0, 0x90, 0x1c));
-    el_circle[i].x = (uint32_t)((120 + cosf((float)M_PI / 12 * (cur_quest.dots[i].pos - 5.5)) * 111) * 256);
-    el_circle[i].y = (uint32_t)((120 + sinf((float)M_PI / 12 * (cur_quest.dots[i].pos - 5.5)) * 111) * 256);
     screen_elements[n_screen_elements++] = (screen_element *)&el_circle[i];
   }
 
+void regenerate_quest()
+{
+  cur_quest = rand_quest(entropy_pool);
+  for (int i = 0; i < 3; i++) {
+    el_circle[i].stroke = rgb565(0xff, 0xc0, 0x20);
+    el_circle[i].fill = (cur_quest.dots[i].type == 1 ?
+      rgb565(0xc0, 0x90, 0x1c) : rgb565(0x40, 0x28, 0x10));
+    el_circle[i].x = (uint32_t)((120 + cosf((float)M_PI / 12 * (cur_quest.dots[i].pos - 5.5)) * 111) * 256);
+    el_circle[i].y = (uint32_t)((120 + sinf((float)M_PI / 12 * (cur_quest.dots[i].pos - 5.5)) * 111) * 256);
+    el_circle[i].manually_updated = true; // Trigger an update in case position is not changed
+  }
+}
+
+  regenerate_quest();
+
+  uint32_t done_at = 0;
+
   while (1) {
     static int count = 0;
+
+    if (done_at != 0 && HAL_GetTick() - done_at >= 1000) {
+      regenerate_quest();
+      done_at = 0;
+    }
 
     if (HAL_GetTick() >= 2000 && count % 50 == 0) {
       read_SDA = _read_SDA_06;
@@ -1560,23 +1573,24 @@ int main()
 
     static uint16_t lx[24] = { 0 };
     static uint16_t highest_lx[3] = { 0 };
-    if (1) {
-      read_SDA = _read_SDA;
-      write_SDA = _write_SDA;
-      bh1750fvi_readout(0b0100011 << 1, lx);
-      bh1750fvi_readout(0b1011100 << 1, lx + 12);
-      // Sort
-      for (int i = 0; i < 3; i++) highest_lx[i] = 0;
-      for (int i = 0, j; i < 24; i++) {
-        for (j = 3; j > 0; j--)
-          if (lx[i] <= highest_lx[j - 1]) break;
-        if (j < 3) {
-          for (int k = 2; k > j; k--) highest_lx[k] = highest_lx[k - 1];
-          highest_lx[j] = lx[i];
-        }
+    read_SDA = _read_SDA;
+    write_SDA = _write_SDA;
+    uint16_t lx_buf[12];
+    bh1750fvi_readout(0b0100011 << 1, lx_buf);
+    for (int i = 0; i < 12; i++) lx[i * 2 + 0] = lx_buf[i];
+    bh1750fvi_readout(0b1011100 << 1, lx_buf);
+    for (int i = 0; i < 12; i++) lx[i * 2 + 1] = lx_buf[i];
+    // Sort
+    for (int i = 0; i < 3; i++) highest_lx[i] = 0;
+    for (int i = 0, j; i < 24; i++) {
+      for (j = 3; j > 0; j--)
+        if (lx[i] <= highest_lx[j - 1]) break;
+      if (j < 3) {
+        for (int k = 2; k > j; k--) highest_lx[k] = highest_lx[k - 1];
+        highest_lx[j] = lx[i];
       }
-      // TODO: Try Otsu's method?
     }
+    // XXX: Try Otsu's method?
 
     max_lx = highest_lx[2];
     uint32_t th1 = (uint32_t)highest_lx[2] / 32;
@@ -1586,31 +1600,54 @@ int main()
     if (th2 <= th1 * 2) th2 = th1 * 2;
     if (th3 <= th2 * 2) th3 = th2 * 2;
     for (int i = 0; i < 24; i++) {
-      int index = i / 2 + (i % 2) * 12;
       lx_levels[i] = (
-        lx[index] >= th3 ? 3 :
-        lx[index] >= th2 ? 2 :
-        lx[index] >= th1 ? 1 : 0);
+        lx[i] >= th3 ? 3 :
+        lx[i] >= th2 ? 2 :
+        lx[i] >= th1 ? 1 : 0);
     }
 
-    snprintf(text_lx_s, sizeof text_lx_s, "max = %lu lx", max_lx);
-    text_lx.s_changed = true;
+    if (done_at == 0) {
+      snprintf(text_lx_s, sizeof text_lx_s, "max = %lu lx", max_lx);
+      text_lx.s_changed = true;
+    }
+
+    // Finishing condition check
+    bool done = true;
+    for (int i = 0; i < 3; i++) {
+      uint8_t p = cur_quest.dots[i].pos;
+      uint32_t lx_mean = (
+        lx[(p + 23) % 24] +
+        lx[(p +  0) % 24] +
+        lx[(p +  1) % 24] +
+      1) / 3;
+      bool correct =
+        (cur_quest.dots[i].type == 1 ? lx_mean >= th3 : lx_mean < th2);
+    /*
+      el_circle[i].stroke = correct ? rgb565(0xff, 0xff, 0x80) : rgb565(0xff, 0xc0, 0x20);
+      el_circle[i].x ^= 1;
+      done &= correct;
+    */
+      if (!correct) { done = false; break; }
+    }
+    if (done) {
+      if ((done_at = HAL_GetTick()) == 0) done_at--;
+      snprintf(text_lx_s, sizeof text_lx_s, "Yes!");
+      text_lx.s_changed = true;
+    }
 
     // Output to LEDs
     uint32_t led_data[24];
     for (int i = 0; i < 24; i++) {
       int index = (17 - i + 24) % 24;
-      index = index / 2 + (index % 2) * 12;
-      uint16_t value = lx[index];
       led_data[i] = (
-        value >= th3 ? 0xe1000102 :
-        value >= th2 ? 0xe1010001 :
-        value >= th1 ? 0xe1000000 : 0xe1000000);
+        lx_levels[index] >= 3 ? 0xe1000102 :
+        lx_levels[index] >= 2 ? 0xe1010001 :
+        lx_levels[index] >= 1 ? 0xe1000000 : 0xe1000000);
     }
 
     for (int i = 0; i < 3; i++) {
       led_data[(17 - cur_quest.dots[i].pos + 24) % 24] =
-        (cur_quest.dots[i].type == 1 ? 0xe1000c60 : 0xe1600008);
+        (cur_quest.dots[i].type == 1 ? 0xe1000c60 : 0xe1500008);
     }
 
     led_write(led_data, 24);
