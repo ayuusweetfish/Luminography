@@ -1561,6 +1561,7 @@ void regenerate_quest()
       m_cen = (vec3){c[0], c[1], c[2]};
       swv_printf("%6d %6d %6d\n", (int)(m_cen.x * 1000), (int)(m_cen.y * 1000), (int)(m_cen.z * 1000));
     }
+    // Not currently working (incorrect sign of eigenvalue with large distortions)
     // mag = vec3_transform(m_tfm, vec3_diff(mag, m_cen));
     mag = vec3_diff(mag, m_cen);
 
@@ -1621,11 +1622,12 @@ void regenerate_quest()
       1) / 3;
       bool correct =
         (cur_quest.dots[i].type == 1 ? lx_mean >= th3 : lx_mean < th2);
-    /*
-      el_circle[i].stroke = correct ? rgb565(0xff, 0xff, 0x80) : rgb565(0xff, 0xc0, 0x20);
-      el_circle[i].x ^= 1;
-      done &= correct;
-    */
+      // Alternative feedback by stroke colour change
+      if (0) {
+        el_circle[i].stroke = correct ? rgb565(0xff, 0xff, 0x80) : rgb565(0xff, 0xc0, 0x20);
+        el_circle[i].x ^= 1;
+        done &= correct;
+      }
       if (!correct) { done = false; break; }
     }
     if (done) {
@@ -1649,7 +1651,7 @@ void regenerate_quest()
         (cur_quest.dots[i].type == 1 ? 0xe1000c60 : 0xe1500008);
     }
 
-    if (done_at != 0) {
+    if (done_at != 0 && HAL_GetTick() - done_at < 3000) {
       uint32_t since_done = HAL_GetTick() - done_at;
       uint32_t progress = since_done / 512;
       uint32_t progress_f = since_done % 512;
@@ -1664,14 +1666,14 @@ void regenerate_quest()
           {0x80, 0x10, 0x30},
         };
         uint32_t tint = 0;
-        for (int i = 0; i < 3; i++)
+        for (int ch = 0; ch < 3; ch++)
           tint |= (
             (uint32_t)(
-              tints[type][i] * (512 - progress_f) +
-              tints[(type - 1 + 4) % 4][i] * progress_f)
+              tints[type][ch] * (512 - progress_f) +
+              tints[(type - 1 + 4) % 4][ch] * progress_f)
             * fade
             / 512 / 256   // 512: forward progress steps; 256: fade steps
-          ) << (i * 8);
+          ) << (ch * 8);
 
         led_data[(17 - i + 24) % 24] = 0xe1000000 | tint;
       }
@@ -1685,7 +1687,6 @@ void regenerate_quest()
     if (tile_cnt == TILE_N * TILE_N) {
       lcd_new_frame();
       tile_cnt = 0;
-      // lcd_brightness(last_screen_refresh % 2 == 0 ? 0x0 : 0xff);
     }
 
     uint32_t cur_tick = HAL_GetTick();
