@@ -1475,7 +1475,8 @@ int main()
   screen_element_text text_bat = text_create();
   text_bat.x = 50;
   text_bat.y = 75;
-  screen_elements[n_screen_elements++] = (screen_element *)&text_bat;
+  // XXX: Suppressed output. Should migrate to a better way of displaying
+  if (0) screen_elements[n_screen_elements++] = (screen_element *)&text_bat;
   static char text_bat_s[64];
   text_bat.s = text_bat_s;
   snprintf(text_bat_s, sizeof text_bat_s, "test text write\n%08lx %08lx\n%08lx %08lx",
@@ -1487,8 +1488,8 @@ int main()
   text_bat.s_changed = true;
 
   screen_element_text text_lx = text_create();
-  text_lx.x = 50;
-  text_lx.y = 140;
+  text_lx.x = 60;
+  text_lx.y = 112;
   screen_elements[n_screen_elements++] = (screen_element *)&text_lx;
   static char text_lx_s[64];
   text_lx.s = text_lx_s;
@@ -1523,7 +1524,7 @@ void regenerate_quest()
   while (1) {
     static int count = 0;
 
-    if (done_at != 0 && HAL_GetTick() - done_at >= 1000) {
+    if (done_at != 0 && HAL_GetTick() - done_at >= 3000) {
       regenerate_quest();
       done_at = 0;
     }
@@ -1558,8 +1559,6 @@ void regenerate_quest()
       float c[3];
       elli_fit_psi(mag_psi, m_tfm, c);
       m_cen = (vec3){c[0], c[1], c[2]};
-      // vec3 m1 = vec3_transform(m_tfm, vec3_diff(mag, m_cen));
-      // swv_printf("%6d %6d %6d\n", (int)(m1.x * 1000), (int)(m1.y * 1000), (int)(m1.z * 1000));
       swv_printf("%6d %6d %6d\n", (int)(m_cen.x * 1000), (int)(m_cen.y * 1000), (int)(m_cen.z * 1000));
     }
     // mag = vec3_transform(m_tfm, vec3_diff(mag, m_cen));
@@ -1631,7 +1630,7 @@ void regenerate_quest()
     }
     if (done) {
       if ((done_at = HAL_GetTick()) == 0) done_at--;
-      snprintf(text_lx_s, sizeof text_lx_s, "Yes!");
+      snprintf(text_lx_s, sizeof text_lx_s, "~** Matched! **~");
       text_lx.s_changed = true;
     }
 
@@ -1648,6 +1647,34 @@ void regenerate_quest()
     for (int i = 0; i < 3; i++) {
       led_data[(17 - cur_quest.dots[i].pos + 24) % 24] =
         (cur_quest.dots[i].type == 1 ? 0xe1000c60 : 0xe1500008);
+    }
+
+    if (done_at != 0) {
+      uint32_t since_done = HAL_GetTick() - done_at;
+      uint32_t progress = since_done / 512;
+      uint32_t progress_f = since_done % 512;
+      uint32_t fade = (since_done < 256 ? since_done :
+        since_done > 3000 - 256 ? 3000 - since_done : 256);
+      for (int i = 0; i < 24; i++) {
+        uint32_t type = (i + 4 - progress % 4) % 4;
+        static const uint8_t tints[4][3] = {
+          {0x80, 0x10, 0x10},
+          {0x10, 0x60, 0x20},
+          {0x10, 0x10, 0xa0},
+          {0x80, 0x10, 0x30},
+        };
+        uint32_t tint = 0;
+        for (int i = 0; i < 3; i++)
+          tint |= (
+            (uint32_t)(
+              tints[type][i] * (512 - progress_f) +
+              tints[(type - 1 + 4) % 4][i] * progress_f)
+            * fade
+            / 512 / 256   // 512: forward progress steps; 256: fade steps
+          ) << (i * 8);
+
+        led_data[(17 - i + 24) % 24] = 0xe1000000 | tint;
+      }
     }
 
     led_write(led_data, 24);
