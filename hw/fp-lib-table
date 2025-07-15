@@ -1,0 +1,6 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "F1C100s")(type "KiCad")(uri "${KIPRJMOD}/libs/F1C100s/F1C100s.pretty")(options "")(descr ""))
+  (lib (name "FFC_Connector")(type "KiCad")(uri "${KIPRJMOD}/libs/FPC_Connector.pretty")(options "")(descr ""))
+  (lib (name "Switches")(type "KiCad")(uri "${KIPRJMOD}/libs/Switches.pretty")(options "")(descr ""))
+)

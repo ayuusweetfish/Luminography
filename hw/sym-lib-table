@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "F1C100s")(type "KiCad")(uri "${KIPRJMOD}/libs/F1C100s/F1C100s.kicad_sym")(options "")(descr ""))
+)
