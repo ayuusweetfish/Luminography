@@ -7482,10 +7482,6 @@
 		(uuid "9daa8dba-baa6-48d7-9600-872aeb9eeab2")
 	)
 	(no_connect
-		(at 204.47 41.91)
-		(uuid "a61cba04-7108-4432-b6f3-e2f82f0eec95")
-	)
-	(no_connect
 		(at 331.47 129.54)
 		(uuid "a926389c-c118-49a8-b922-f52c4068b4e5")
 	)
@@ -7508,6 +7504,10 @@
 	(no_connect
 		(at 204.47 77.47)
 		(uuid "c9989072-511f-4802-b49f-35a44f61854c")
+	)
+	(no_connect
+		(at 204.47 59.69)
+		(uuid "d8751089-4942-43e9-a8a2-55f14eba6988")
 	)
 	(no_connect
 		(at 95.25 102.87)
@@ -9400,7 +9400,7 @@
 		(uuid "c4c9ae7c-c576-42d7-84b4-9e9fb0b4031e")
 	)
 	(label "LCD_NRST"
-		(at 204.47 59.69 0)
+		(at 204.47 41.91 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -9644,7 +9644,7 @@
 				)
 			)
 		)
-		(property "Footprint" "FFC_Connector:FPC_1x40_P0.5_L"
+		(property "Footprint" "FFC_Connector:FPC_1x40_P0.5_R"
 			(at 336.55 81.28 0)
 			(effects
 				(font
