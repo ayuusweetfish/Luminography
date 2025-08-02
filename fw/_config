@@ -1,3 +1,5 @@
 # TODO: Incorporate these into original defconfig to produce a self-contained one
 BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE="2025.07"
 BR2_TARGET_UBOOT_VERSION="2025.07"
+
+BR2_ROOTFS_POST_SCRIPT_ARGS="-c $(BR2_EXTERNAL_PANCAKE_PATH)/board/sipeed/licheepi_nano/genimage.cfg"
