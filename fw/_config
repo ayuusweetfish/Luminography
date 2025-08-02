@@ -1,0 +1,3 @@
+# TODO: Incorporate these into original defconfig to produce a self-contained one
+BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE="2025.07"
+BR2_TARGET_UBOOT_VERSION="2025.07"
