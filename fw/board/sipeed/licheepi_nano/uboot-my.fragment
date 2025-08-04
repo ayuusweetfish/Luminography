@@ -1,7 +1,8 @@
 CONFIG_AUTOBOOT=y
 CONFIG_BOOTDELAY=1
 CONFIG_ENV_IS_NOWHERE=y
-CONFIG_BOOTCOMMAND="sf probe 0:0 80000000; sf read 0x80C00000 0x80000 0x4000; sf read 0x80008000 0x90000 0x500000; bootz 0x80008000 - 0x80C00000"
+CONFIG_BOOTARGS="console=tty0 console=ttyS0,115200 panic=5 rootwait root=/dev/mtdblock3 rw rootfstype=jffs2 mtdparts=spi0.0:512k(uboot)ro,64k(dtb),4M(kernel)ro,-(rootfs)"
+CONFIG_BOOTCOMMAND="sf probe 0:0 80000000; sf read 0x80C00000 0x80000 0x4000; sf read 0x80008000 0x90000 0x400000; bootz 0x80008000 - 0x80C00000"
 
 CONFIG_DM_SPI_FLASH=y
 CONFIG_SPI_FLASH=y
