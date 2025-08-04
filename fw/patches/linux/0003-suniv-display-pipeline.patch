@@ -12,11 +12,11 @@ Signed-off-by: Icenowy Zheng <icenowy@aosc.io>
  arch/arm/boot/dts/suniv.dtsi | 114 +++++++++++++++++++++++++++++++++++
  1 file changed, 114 insertions(+)
 
-diff --git a/arch/arm/boot/dts/suniv.dtsi b/arch/arm/boot/dts/suniv.dtsi
+diff --git a/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi b/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi
 index f05438b64d7156..155b3661ba2593 100644
---- a/arch/arm/boot/dts/suniv.dtsi
-+++ b/arch/arm/boot/dts/suniv.dtsi
-@@ -48,6 +48,12 @@
+--- a/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi
++++ b/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi
+@@ -40,6 +40,12 @@
  		};
  	};
  
@@ -29,7 +29,7 @@ index f05438b64d7156..155b3661ba2593 100644
  	soc {
  		compatible = "simple-bus";
  		#address-cells = <1>;
-@@ -102,6 +108,44 @@
+@@ -98,6 +104,44 @@
  			#size-cells = <0>;
  		};
  
@@ -72,10 +72,10 @@ index f05438b64d7156..155b3661ba2593 100644
 +		};
 +
  		mmc0: mmc@1c0f000 {
- 			compatible = "allwinner,suniv-mmc",
+ 			compatible = "allwinner,suniv-f1c100s-mmc",
  				     "allwinner,sun7i-a20-mmc";
-@@ -257,5 +301,75 @@
- 			#phy-cells = <1>;
+@@ -350,5 +394,75 @@
+ 			resets = <&ccu RST_BUS_CODEC>;
  			status = "disabled";
  		};
 +

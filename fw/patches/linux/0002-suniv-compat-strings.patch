@@ -25,8 +25,8 @@ diff --git a/drivers/gpu/drm/sun4i/sun4i_backend.c b/drivers/gpu/drm/sun4i/sun4i
 index 78d8c3afe82533..d31d4e424eaae7 100644
 --- a/drivers/gpu/drm/sun4i/sun4i_backend.c
 +++ b/drivers/gpu/drm/sun4i/sun4i_backend.c
-@@ -972,6 +972,9 @@ static int sun4i_backend_remove(struct platform_device *pdev)
- 	return 0;
+@@ -972,6 +972,9 @@ static void sun4i_backend_remove(struct platform_device *pdev)
+ 	component_del(&pdev->dev, &sun4i_backend_ops);
  }
  
 +static const struct sun4i_backend_quirks suniv_backend_quirks = {

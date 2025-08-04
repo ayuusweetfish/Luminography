@@ -14,11 +14,11 @@ Signed-off-by: Icenowy Zheng <icenowy@aosc.io>
  arch/arm/boot/dts/suniv.dtsi | 9 +++++++++
  1 file changed, 9 insertions(+)
 
-diff --git a/arch/arm/boot/dts/suniv.dtsi b/arch/arm/boot/dts/suniv.dtsi
+diff --git a/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi b/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi
 index 155b3661ba2593..ee600cd1be71a5 100644
---- a/arch/arm/boot/dts/suniv.dtsi
-+++ b/arch/arm/boot/dts/suniv.dtsi
-@@ -220,6 +220,15 @@
+--- a/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi
++++ b/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi
+@@ -257,6 +257,15 @@
  				function = "spi0";
  			};
  
@@ -31,6 +31,6 @@ index 155b3661ba2593..ee600cd1be71a5 100644
 +				function = "lcd";
 +			};
 +
- 			uart0_pins_a: uart-pins-pe {
+ 			uart0_pe_pins: uart0-pe-pins {
  				pins = "PE0", "PE1";
  				function = "uart0";
