@@ -1,4 +1,6 @@
 // /media/ayu/rootfs/home/ayu/f1c_build/host/bin/arm-linux-gcc blink.c -o rootfs/root/blink -O2
+
+// Reference: https://docs.kernel.org/userspace-api/gpio/chardev.html
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -15,15 +17,14 @@ int main()
   }
 
   int line = 134;   // PE6 = 4 * 32 + 6
-  struct gpiohandle_request req = {
-    .lineoffsets = { line },
-    .flags = GPIOHANDLE_REQUEST_OUTPUT,
-    .default_values = { 0 },
-    .consumer_label = "blink",
-    .lines = 1,
+  struct gpio_v2_line_request req = {
+    .offsets = { line },
+    .consumer = "blink",
+    .config.flags = GPIO_V2_LINE_FLAG_OUTPUT,
+    .num_lines = 1,
   };
-  if (ioctl(fd, GPIO_GET_LINEHANDLE_IOCTL, &req) < 0) {
-    perror("GPIO_GET_LINEHANDLE_IOCTL");
+  if (ioctl(fd, GPIO_V2_GET_LINE_IOCTL, &req) < 0) {
+    perror("GPIO_V2_GET_LINE_IOCTL");
     close(fd);
     return 1;
   }
@@ -35,9 +36,12 @@ int main()
   while (1) {
     parity ^= 1;
     puts(parity ? "On" : "Off");
-    struct gpiohandle_data data = { .values = { parity } };
-    if (ioctl(req.fd, GPIOHANDLE_SET_LINE_VALUES_IOCTL, &data) < 0) {
-      perror("GPIOHANDLE_SET_LINE_VALUES_IOCTL");
+    struct gpio_v2_line_values values = {
+      .bits = parity,
+      .mask = 1,
+    };
+    if (ioctl(req.fd, GPIO_V2_LINE_SET_VALUES_IOCTL, &values) < 0) {
+      perror("GPIO_V2_LINE_SET_VALUES_IOCTL");
       break;
     }
     usleep(500000);
