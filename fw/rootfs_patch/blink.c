@@ -10,11 +10,12 @@
 #include <sys/ioctl.h>
 #include <linux/gpio.h>
 
+static int gpio_line;
 static int req_fd = 0;
 static void sigint_handler(int n)
 {
   if (req_fd != 0) {
-    printf("Received SIGINT, turning off LED and exiting\n");
+    printf("Received SIGINT, setting pin output to low and exiting\n");
     struct gpio_v2_line_values values = { .bits = 0, .mask = 1 };
     if (ioctl(req_fd, GPIO_V2_LINE_SET_VALUES_IOCTL, &values) < 0) {
       perror("GPIO_V2_LINE_SET_VALUES_IOCTL");
@@ -24,7 +25,7 @@ static void sigint_handler(int n)
   exit(0);
 }
 
-int main()
+int main(int argc, char *argv[])
 {
   int fd = open("/dev/gpiochip0", O_RDWR);
   if (fd < 0) {
@@ -32,9 +33,18 @@ int main()
     return 1;
   }
 
-  int line = 134;   // PE6 = 4 * 32 + 6
+  int gpio_line = 134;  // PE6 = 4 * 32 + 6
+  if (argc >= 2) {
+    const char *p = argv[1];
+    if (p[0] == 'P' || p[0] == 'p') p++;
+    if ((p[0] >= 'A' && p[0] <= 'Z') || p[0] >= 'a' && p[0] <= 'z') {
+      gpio_line = ((p[0] - 'A') % 32) * 32 + (int)strtol(p + 1, NULL, 0);
+    } else {
+      gpio_line = (int)strtol(argv[1], NULL, 0);
+    }
+  }
   struct gpio_v2_line_request req = {
-    .offsets = { line },
+    .offsets = { gpio_line },
     .consumer = "blink",
     .config.flags = GPIO_V2_LINE_FLAG_OUTPUT,
     .num_lines = 1,
@@ -50,7 +60,7 @@ int main()
   req_fd = req.fd;
   signal(SIGINT, sigint_handler);
 
-  printf("Blinking LED at GPIO line %d\n", line);
+  printf("Blinking GPIO line %d (P%c%d)\n", gpio_line, 'A' + (gpio_line / 32), gpio_line % 32);
   int parity = 0;
   while (1) {
     parity ^= 1;
