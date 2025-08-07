@@ -21,7 +21,7 @@ index f05438b64d7156..155b3661ba2593 100644
  	};
  
 +	de: display-engine {
-+		compatible = "allwinner,suniv-display-engine";
++		compatible = "allwinner,suniv-f1c100s-display-engine";
 +		allwinner,pipelines = <&fe0>;
 +		status = "disabled";
 +	};
@@ -34,7 +34,7 @@ index f05438b64d7156..155b3661ba2593 100644
  		};
  
 +		tcon0: lcd-controller@1c0c000 {
-+			compatible = "allwinner,suniv-tcon";
++			compatible = "allwinner,suniv-f1c100s-tcon";
 +			reg = <0x01c0c000 0x1000>;
 +			interrupts = <29>;
 +			clocks = <&ccu CLK_BUS_LCD>,
@@ -80,7 +80,7 @@ index f05438b64d7156..155b3661ba2593 100644
  		};
 +
 +		fe0: display-frontend@1e00000 {
-+			compatible = "allwinner,suniv-display-frontend";
++			compatible = "allwinner,suniv-f1c100s-display-frontend";
 +			reg = <0x01e00000 0x20000>;
 +			interrupts = <30>;
 +			clocks = <&ccu CLK_BUS_DE_FE>, <&ccu CLK_DE_FE>,
@@ -108,7 +108,7 @@ index f05438b64d7156..155b3661ba2593 100644
 +		};
 +
 +		be0: display-backend@1e60000 {
-+			compatible = "allwinner,suniv-display-backend";
++			compatible = "allwinner,suniv-f1c100s-display-backend";
 +			reg = <0x01e60000 0x10000>;
 +			reg-names = "be";
 +			interrupts = <31>;
