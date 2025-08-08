@@ -1,0 +1,109 @@
+diff --git a/sun4i_orig/sun4i-backend.ko b/sun4i/sun4i-backend.ko
+index 1057565..092f421 100644
+Binary files a/sun4i_orig/sun4i-backend.ko and b/sun4i/sun4i-backend.ko differ
+diff --git a/sun4i_orig/sun4i-backend.o b/sun4i/sun4i-backend.o
+index e919cf6..ec4edb3 100644
+Binary files a/sun4i_orig/sun4i-backend.o and b/sun4i/sun4i-backend.o differ
+diff --git a/sun4i_orig/sun4i_backend.c b/sun4i/sun4i_backend.c
+index db74db6..b25c889 100644
+--- a/sun4i_orig/sun4i_backend.c
++++ b/sun4i/sun4i_backend.c
+@@ -737,25 +737,37 @@ static struct sun4i_frontend *sun4i_backend_find_frontend(struct sun4i_drv *drv,
+ 	struct sun4i_frontend *frontend;
+ 
+ 	port = of_graph_get_port_by_id(node, 0);
+-	if (!port)
++	if (!port) {
++		printk(KERN_WARNING "Port not found?\n");
+ 		return ERR_PTR(-EINVAL);
+-
++	}
++	
++	printk(KERN_WARNING "Port %pOF\n", port);
+ 	for_each_available_child_of_node(port, ep) {
+ 		remote = of_graph_get_remote_port_parent(ep);
+ 		if (!remote)
+ 			continue;
+-		of_node_put(remote);
++
++		printk(KERN_WARNING "Remote %pOF\n", remote);
++		if (!of_device_is_available(remote)) {
++			printk(KERN_WARNING "Remote is not available\n");
++		}
+ 
+ 		/* does this node match any registered engines? */
+ 		list_for_each_entry(frontend, &drv->frontend_list, list) {
++			printk(KERN_WARNING " > Frontend %pOF\n", frontend->node);
+ 			if (remote == frontend->node) {
+ 				of_node_put(port);
+ 				of_node_put(ep);
++				of_node_put(remote);
+ 				return frontend;
+ 			}
+ 		}
++
++		of_node_put(remote);
+ 	}
+ 	of_node_put(port);
++	printk(KERN_WARNING "Not found > <\n");
+ 	return ERR_PTR(-EINVAL);
+ }
+ 
+@@ -780,6 +792,7 @@ static const struct regmap_config sun4i_backend_regmap_config = {
+ static int sun4i_backend_bind(struct device *dev, struct device *master,
+ 			      void *data)
+ {
++	dev_warn(dev, "sun4i_backend_bind\n");
+ 	struct platform_device *pdev = to_platform_device(dev);
+ 	struct drm_device *drm = data;
+ 	struct sun4i_drv *drv = drm->dev_private;
+@@ -964,6 +977,7 @@ static const struct component_ops sun4i_backend_ops = {
+ 
+ static int sun4i_backend_probe(struct platform_device *pdev)
+ {
++	printk(KERN_WARNING "sun4i_backend_probe\n");
+ 	return component_add(&pdev->dev, &sun4i_backend_ops);
+ }
+ 
+diff --git a/sun4i_orig/sun4i_backend.o b/sun4i/sun4i_backend.o
+index 5ef40fe..4366346 100644
+Binary files a/sun4i_orig/sun4i_backend.o and b/sun4i/sun4i_backend.o differ
+diff --git a/sun4i_orig/sun4i_frontend.c b/sun4i/sun4i_frontend.c
+index 5ab1604..342d40e 100644
+--- a/sun4i_orig/sun4i_frontend.c
++++ b/sun4i/sun4i_frontend.c
+@@ -556,6 +556,7 @@ static const struct regmap_config sun4i_frontend_regmap_config = {
+ static int sun4i_frontend_bind(struct device *dev, struct device *master,
+ 			 void *data)
+ {
++	dev_warn(dev, "sun4i_frontend_bind\n");
+ 	struct platform_device *pdev = to_platform_device(dev);
+ 	struct sun4i_frontend *frontend;
+ 	struct drm_device *drm = data;
+@@ -610,6 +611,7 @@ static int sun4i_frontend_bind(struct device *dev, struct device *master,
+ 	}
+ 
+ 	list_add_tail(&frontend->list, &drv->frontend_list);
++	dev_warn(dev, "Added to frontend list!\n");
+ 	pm_runtime_enable(dev);
+ 
+ 	return 0;
+@@ -631,6 +633,7 @@ static const struct component_ops sun4i_frontend_ops = {
+ 
+ static int sun4i_frontend_probe(struct platform_device *pdev)
+ {
++	printk(KERN_WARNING "sun4i_frontend_probe\n");
+ 	return component_add(&pdev->dev, &sun4i_frontend_ops);
+ }
+ 
+@@ -694,6 +697,10 @@ static const struct sun4i_frontend_data sun8i_a33_frontend = {
+ };
+ 
+ const struct of_device_id sun4i_frontend_of_table[] = {
++	{
++		.compatible = "allwinner,suniv-f1c100s-display-frontend",
++		.data = &sun4i_a10_frontend
++	},
+ 	{
+ 		.compatible = "allwinner,sun4i-a10-display-frontend",
+ 		.data = &sun4i_a10_frontend
