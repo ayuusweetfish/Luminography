@@ -1,0 +1,16 @@
+diff --git a/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi b/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi
+index 43165bc..2fcee25 100644
+--- a/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi
++++ b/arch/arm/boot/dts/allwinner/suniv-f1c100s.dtsi
+@@ -257,6 +257,11 @@ spi0_pc_pins: spi0-pc-pins {
+ 				function = "spi0";
+ 			};
+ 
++			spi1_pe_pins: spi1-pe-pins {
++				pins = "PE7", "PE8", "PE9", "PE10";
++				function = "spi1";
++			};
++
+ 			lcd_rgb666_pins: lcd-rgb666-pins {
+ 				pins = "PD0", "PD1", "PD2", "PD3", "PD4",
+ 				       "PD5", "PD6", "PD7", "PD8", "PD9",

@@ -16,29 +16,11 @@
 		mmc0 = &mmc0;
 		serial0 = &uart0;
 		spi0 = &spi0;
+		spi1 = &spi1;
 	};
 
 	chosen {
 		stdout-path = "serial0:115200n8";
-	};
-
-	panel: panel {
-		compatible = "lg,lb070wv8", "simple-panel";
-		#address-cells = <1>;
-		#size-cells = <0>;
-		enable-gpios = <&pio 4 12 GPIO_ACTIVE_HIGH>;
-		power-supply = <&reg_vcc3v3>;
-
-		port@0 {
-			reg = <0>;
-			#address-cells = <1>;
-			#size-cells = <0>;
-
-			panel_input: endpoint@0 {
-				reg = <0>;
-				remote-endpoint = <&tcon0_out_lcd>;
-			};
-		};
 	};
 
 	reg_vcc3v3: vcc3v3 {
@@ -93,6 +75,35 @@
 		compatible = "winbond,w25q128", "jedec,spi-nor";
 		reg = <0>;
 		spi-max-frequency = <40000000>;
+	};
+};
+
+&spi1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi1_pe_pins>;
+	status = "okay";
+
+	panel: panel@0 {
+		compatible = "anbernic,rg35xx-plus-panel";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		enable-gpios = <&pio 4 12 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pio 4 4 GPIO_ACTIVE_LOW>;
+		power-supply = <&reg_vcc3v3>;
+
+		reg = <0>;
+		spi-max-frequency = <40000000>;
+
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			panel_input: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&tcon0_out_lcd>;
+			};
+		};
 	};
 };
 
