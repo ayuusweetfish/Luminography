@@ -14,6 +14,9 @@ static int gpio_line;
 static int req_fd = 0;
 static void sigint_handler(int n)
 {
+  printf("Received SIGINT, exiting\n");
+  exit(0);
+
   if (req_fd != 0) {
     printf("Received SIGINT, setting pin output to low and exiting\n");
     struct gpio_v2_line_values values = { .bits = 0, .mask = 1 };

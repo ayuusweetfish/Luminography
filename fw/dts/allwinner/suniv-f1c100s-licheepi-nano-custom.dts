@@ -84,7 +84,7 @@
 	status = "okay";
 
 	panel: panel@0 {
-		compatible = "anbernic,rg35xx-plus-panel";
+		compatible = "huadichuangxian,hd40015c40";
 		#address-cells = <1>;
 		#size-cells = <0>;
 		enable-gpios = <&pio 4 12 GPIO_ACTIVE_HIGH>;
