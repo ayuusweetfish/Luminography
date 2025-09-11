@@ -1,9 +1,3 @@
-diff --git a/sun4i_orig/sun4i-backend.ko b/sun4i/sun4i-backend.ko
-index 1057565..092f421 100644
-Binary files a/sun4i_orig/sun4i-backend.ko and b/sun4i/sun4i-backend.ko differ
-diff --git a/sun4i_orig/sun4i-backend.o b/sun4i/sun4i-backend.o
-index e919cf6..ec4edb3 100644
-Binary files a/sun4i_orig/sun4i-backend.o and b/sun4i/sun4i-backend.o differ
 diff --git a/sun4i_orig/sun4i_backend.c b/sun4i/sun4i_backend.c
 index db74db6..b25c889 100644
 --- a/sun4i_orig/sun4i_backend.c
@@ -65,9 +59,6 @@ index db74db6..b25c889 100644
  	return component_add(&pdev->dev, &sun4i_backend_ops);
  }
  
-diff --git a/sun4i_orig/sun4i_backend.o b/sun4i/sun4i_backend.o
-index 5ef40fe..4366346 100644
-Binary files a/sun4i_orig/sun4i_backend.o and b/sun4i/sun4i_backend.o differ
 diff --git a/sun4i_orig/sun4i_frontend.c b/sun4i/sun4i_frontend.c
 index 5ab1604..342d40e 100644
 --- a/sun4i_orig/sun4i_frontend.c
@@ -107,3 +98,16 @@ index 5ab1604..342d40e 100644
  	{
  		.compatible = "allwinner,sun4i-a10-display-frontend",
  		.data = &sun4i_a10_frontend
+diff --git a/sun4i_orig/sun4i_tcon.c b/sun4i/sun4i_tcon.c
+index 20e3a39..86f9429 100644
+--- a/sun4i_orig/sun4i_tcon.c
+--- b/sun4i/sun4i_tcon.c
+@@ -1454,6 +1454,8 @@ static const struct sun4i_tcon_quirks suniv_f1c100s_quirks = {
+         */
+        .has_channel_0          = true,
+        /* .has_channel_1       = true, */
++       .dclk_min_div           = 4,
++       .set_mux                = sun4i_a10_tcon_set_mux,
+ };
+
+ static const struct sun4i_tcon_quirks sun4i_a10_quirks = {
